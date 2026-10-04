@@ -8,5 +8,7 @@ export const config = {
   osPass: process.env.OPENSUBTITLES_PASSWORD || '',
   subdlKey: process.env.SUBDL_API_KEY || '',
   subsourceKey: process.env.SUBSOURCE_API_KEY || '',
+  storeUrl: (process.env.SUPABASE_URL || '').replace(/\/$/, ''),
+  storeKey: process.env.SUPABASE_ANON_KEY || '',
   userAgent: 'TrAltyaziSync v0.1',
 };
