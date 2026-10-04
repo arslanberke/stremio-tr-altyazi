@@ -8,6 +8,7 @@ import { syncCues } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
+import * as subsource from './sources/subsource.js';
 import * as local from './sources/local.js';
 import * as torbox from './torbox.js';
 import { translateLines } from './translate.js';
@@ -85,6 +86,7 @@ export async function findCandidates(target, video) {
     os.search({ ...q, videoHash: video.videoHash, languages: 'tr' }).catch(osErr),
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
     local.search(q).catch((e) => (log('local search', e.message), [])),
+    subsource.search(q).catch((e) => (log('subsource search', e.message), [])),
     ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
   const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
@@ -171,7 +173,7 @@ function wrap(text, max = 42) {
 }
 
 async function loadCandidate(c, target) {
-  const src = { opensubtitles: os, subdl, local }[c.source];
+  const src = { opensubtitles: os, subdl, subsource, local }[c.source];
   const buf = await src.download(c.ref);
   const files = unpack(buf, c.fileName || 'sub.srt');
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
@@ -228,6 +230,6 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
     lang: 'tur',
-    label: `${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
+    label: `${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
 }
