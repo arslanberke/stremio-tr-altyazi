@@ -43,3 +43,8 @@ test('parses stremio ids', () => {
   assert.deepEqual(parseStremioId('series', 'tt0903747:1:4'), { kind: 'imdb', imdb: 'tt0903747', season: 1, episode: 4 });
   assert.deepEqual(parseStremioId('movie', 'tt0371746'), { kind: 'imdb', imdb: 'tt0371746', season: null, episode: null });
 });
+
+test('rejects an episode number glued to the title', () => {
+  assert.equal(episodeMatches('Naruto45', 1, 5, { absolute: 5, longRunning: true }), false);
+  assert.equal(episodeMatches('Naruto05', 1, 5, { absolute: 5, longRunning: true }), true);
+});

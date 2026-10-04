@@ -42,7 +42,10 @@ export function bareNumbers(name) {
     .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, ' ')
     .replace(/\b(19|20)\d{2}\b/g, ' ')
     .replace(/\b\d{3,4}[pi]\b|\b[xh][ .]?26[45]\b|\b\d+[ -]?bits?\b|\b\d\.\d\b|\b(?:ddp?|aac|ac3|dts|eac3)[ .]?\d(?:\.\d)?\b/gi, ' ');
-  return [...s.matchAll(/(?:^|[^a-z0-9])(?:e|ep|episode)?[ ._-]?(\d{2,4})(?:v\d)?(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
+  const loose = [...s.matchAll(/(?:^|[^a-z0-9])(?:e|ep|episode)?[ ._-]?(\d{2,4})(?:v\d)?(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
+  if (loose.length) return loose;
+  // "Naruto45": number glued to the title
+  return [...s.matchAll(/(?<=[a-z]{3})(\d{2,4})(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
 }
 
 // ctx: { absolute, longRunning } from the series episode list (anime use absolute numbering).
