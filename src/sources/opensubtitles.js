@@ -1,0 +1,72 @@
+import { config } from '../config.js';
+import { fetchJson, fetchBuffer } from '../http.js';
+import { cached } from '../cache.js';
+
+const BASE = 'https://api.opensubtitles.com/api/v1';
+let token = null;
+let tokenExp = 0;
+
+function headers(auth) {
+  const h = { 'Api-Key': config.osKey, 'User-Agent': config.userAgent, 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (auth && token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
+async function login() {
+  if (token && tokenExp > Date.now()) return;
+  const d = await fetchJson(`${BASE}/login`, {
+    method: 'POST',
+    headers: headers(false),
+    body: JSON.stringify({ username: config.osUser, password: config.osPass }),
+  });
+  token = d.token;
+  tokenExp = Date.now() + 12 * 3600 * 1000;
+}
+
+export const enabled = () => Boolean(config.osKey);
+
+// languages: comma list like "tr" or "en"; returns normalized candidates
+export async function search({ imdb, season, episode, videoHash, languages = 'tr' }) {
+  if (!enabled()) return [];
+  const num = String(Number(imdb.replace('tt', '')));
+  const p = { languages };
+  if (season != null) {
+    p.parent_imdb_id = num;
+    p.season_number = String(season);
+    p.episode_number = String(episode);
+  } else p.imdb_id = num;
+  if (videoHash) p.moviehash = videoHash;
+  const qs = Object.keys(p).sort().map((k) => `${k}=${encodeURIComponent(p[k])}`).join('&');
+  const d = await cached('os-search', qs, 6 * 3600, () => fetchJson(`${BASE}/subtitles?${qs}`, { headers: headers(false) }));
+  return (d.data || []).flatMap((s) => {
+    const a = s.attributes;
+    const fd = a.feature_details || {};
+    if (season != null && (fd.season_number !== season || fd.episode_number !== episode)) return [];
+    return (a.files || []).map((f) => ({
+      source: 'opensubtitles',
+      ref: String(f.file_id),
+      lang: a.language,
+      release: a.release || f.file_name || '',
+      fileName: f.file_name || '',
+      fps: a.fps || null,
+      hashMatch: Boolean(a.moviehash_match),
+      downloads: a.download_count || 0,
+      fromTrusted: Boolean(a.from_trusted),
+      season,
+      episode,
+    }));
+  });
+}
+
+export async function download(fileId) {
+  return cached('os-file', fileId, 30 * 86400, async () => {
+    await login();
+    const d = await fetchJson(`${BASE}/download`, {
+      method: 'POST',
+      headers: headers(true),
+      body: JSON.stringify({ file_id: Number(fileId), sub_format: 'srt' }),
+    });
+    const buf = await fetchBuffer(d.link);
+    return buf.toString('base64');
+  }).then((b64) => Buffer.from(b64, 'base64'));
+}

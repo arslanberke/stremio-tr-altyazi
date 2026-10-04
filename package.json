@@ -1,0 +1,19 @@
+{
+  "name": "stremio-tr-altyazi",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "express": "^5.2.1",
+    "iconv-lite": "^0.7.3"
+  }
+}
