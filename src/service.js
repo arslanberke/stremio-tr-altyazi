@@ -174,7 +174,7 @@ function wrap(text, max = 42) {
 
 async function loadCandidate(c, target) {
   const src = { opensubtitles: os, subdl, subsource, local }[c.source];
-  const buf = await src.download(c.ref, c);
+  const buf = await src.download(c.ref, { imdb: target.imdb, season: target.season, episode: target.episode, ...c });
   const files = unpack(buf, c.fileName || 'sub.srt');
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');

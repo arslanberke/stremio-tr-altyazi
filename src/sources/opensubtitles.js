@@ -65,8 +65,13 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
 
 // Stremio's own OpenSubtitles addon serves the same files without the API's daily
 // download quota; its subtitle ids are OpenSubtitles legacy ids.
-async function viaStremio(c) {
-  if (!c?.legacy || !c.imdb) return null;
+async function viaStremio(fileId, c) {
+  if (!c?.imdb) return null;
+  if (!c.legacy) {
+    const found = await search({ imdb: c.imdb, season: c.season, episode: c.episode, languages: 'en,tr' }).catch(() => []);
+    c = { ...c, legacy: found.find((x) => x.ref === String(fileId))?.legacy };
+    if (!c.legacy) return null;
+  }
   const id = c.season != null ? `series/${c.imdb}:${c.season}:${c.episode}` : `movie/${c.imdb}`;
   try {
     const d = await cached('os-v3', id, 6 * 3600, () => fetchJson(`https://opensubtitles-v3.strem.io/subtitles/${id}.json`));
@@ -79,7 +84,7 @@ async function viaStremio(c) {
 
 export async function download(fileId, c) {
   return cached('os-file', fileId, 30 * 86400, async () => {
-    const v3 = await viaStremio(c);
+    const v3 = await viaStremio(fileId, c);
     if (v3?.length) return v3.toString('base64');
     await login();
     const d = await fetchJson(`${BASE}/download`, {
