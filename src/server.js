@@ -51,7 +51,11 @@ app.get('/sub/:token.srt', async (req, res) => {
     res.type('application/x-subrip; charset=utf-8').send(out.srt);
   } catch (e) {
     console.error('sub error', e.message);
-    res.status(404).send('');
+    const msg = /HTTP 406 api\.opensubtitles/.test(e.message)
+      ? 'OpenSubtitles günlük indirme hakkı doldu. Başka altyazı seç ya da yarın dene.'
+      : 'Bu altyazı indirilemedi. Başka altyazı seç.';
+    res.setHeader('X-Sync-Status', 'error');
+    res.type('application/x-subrip; charset=utf-8').send(`1\n00:00:00,000 --> 00:00:15,000\n${msg}\n`);
   }
 });
 
