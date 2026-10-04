@@ -44,9 +44,45 @@ export function pickSubtitleStream(streams) {
   return ok.sort((a, b) => rank(a) - rank(b))[0] || null;
 }
 
+const IMAGE_CODECS = new Set(['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle']);
+
+export function pickImageSubtitleStream(streams) {
+  const subs = streams.filter((s) => s.codec_type === 'subtitle' && IMAGE_CODECS.has(s.codec_name)
+    && !s.disposition?.forced && !/forced|sign|song/i.test(s.tags?.title || ''));
+  const rank = (s) => (lang(s).startsWith('en') ? 0 : 1);
+  return subs.sort((a, b) => rank(a) - rank(b))[0] || null;
+}
+
+// Subtitles follow the original audio, not a dub: prefer the track flagged original,
+// then a Japanese track (anime dual-audio releases), then the default.
 export function pickAudioStream(streams) {
   const a = streams.filter((s) => s.codec_type === 'audio');
-  return a.find((s) => s.disposition?.default) || a.find((s) => lang(s).startsWith('en')) || a[0] || null;
+  return a.find((s) => s.disposition?.original) || (a.length > 1 && a.find((s) => lang(s) === 'jpn'))
+    || a.find((s) => s.disposition?.default) || a.find((s) => lang(s).startsWith('en')) || a[0] || null;
+}
+
+// Image subtitles (PGS/VobSub) can't be read as text, but each packet marks when a line
+// appears (large packet) or is cleared (tiny packet), which is all the timing we need.
+export function cuesFromImagePackets(rows) {
+  const cues = [];
+  let open = null;
+  for (const [t, size] of rows) {
+    if (!Number.isFinite(t)) continue;
+    if (size > 100) {
+      if (open != null && t - open > 0.2) cues.push({ start: open, end: t });
+      open = t;
+    } else if (open != null) {
+      if (t - open > 0.2 && t - open < 15) cues.push({ start: open, end: t });
+      open = null;
+    }
+  }
+  return cues;
+}
+
+async function imageSubCues(url, index) {
+  const out = await run('ffprobe', ['-v', 'error', '-select_streams', String(index), '-show_entries', 'packet=pts_time,size', '-of', 'csv=p=0', url], { timeoutMs: 60000 });
+  const rows = out.toString('utf8').trim().split('\n').map((l) => l.split(',').map(Number));
+  return cuesFromImagePackets(rows);
 }
 
 export function planWindows(duration, count, len) {
@@ -131,6 +167,13 @@ export async function referenceFromVideo(url) {
     const cues = res.flatMap((r) => r.cues);
     if (cues.length >= 20) {
       return { kind: 'embedded', lang: lang(sub), duration, fps, windows: res.map((r) => r.window), speech: cues.map((c) => [c.start, c.end]) };
+    }
+  }
+  const img = pickImageSubtitleStream(info.streams);
+  if (img) {
+    const cues = await imageSubCues(url, img.index);
+    if (cues.length >= 20) {
+      return { kind: 'embedded-image', lang: lang(img), duration, fps, windows: [[0, Math.max(duration, cues.at(-1).end + 5)]], speech: cues.map((c) => [c.start, c.end]) };
     }
   }
   const audio = pickAudioStream(info.streams);

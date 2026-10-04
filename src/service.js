@@ -29,6 +29,23 @@ export function parseExtra(extra) {
   return out;
 }
 
+// Stremio asks for subtitles more than once and TV apps show the first list, which may
+// lack file details; the latest details per episode fill them in when a subtitle is picked.
+const lastVideo = new Map();
+const targetKey = (t) => [t.imdb, t.season, t.episode].join(':');
+
+function rememberVideo(target, video) {
+  if (!video.videoHash && !video.videoSize) return;
+  lastVideo.set(targetKey(target), { video, at: Date.now() });
+  if (lastVideo.size > 500) lastVideo.delete(lastVideo.keys().next().value);
+}
+
+function completeVideo(target, video) {
+  if (video.videoHash || video.videoSize) return video;
+  const m = lastVideo.get(targetKey(target));
+  return m && Date.now() - m.at < 3 * 3600 * 1000 ? m.video : video;
+}
+
 function videoKey(v) {
   return v.videoHash || `${v.videoSize}:${v.filename}`;
 }
@@ -122,6 +139,25 @@ async function getReference(video, target) {
         log('os ref failed', e.message);
       }
     }
+    if (os.enabled() && video.filename) {
+      try {
+        const ctx = await episodeContext(target.imdb, target.season, target.episode);
+        const list = (await os.search({ imdb: target.imdb, season: target.season, episode: target.episode, languages: 'en' }))
+          .filter((c) => target.season == null || (episodeMatches(c.release, target.season, target.episode, ctx) !== false
+            && episodeMatches(c.fileName, target.season, target.episode, ctx) !== false));
+        const best = list.map((c) => ({ c, s: releaseScore(video.filename, c.release) })).sort((a, b) => b.s - a.s)[0];
+        if (best && best.s >= 5) {
+          const cues = parseSubtitle(decodeText(await os.download(best.c.ref)), { fps: best.c.fps });
+          const ref = referenceFromSubtitle(cues, 'same-release');
+          if (ref) {
+            log('ref from same-release subtitle', best.c.release);
+            return ref;
+          }
+        }
+      } catch (e) {
+        log('same-release ref failed', e.message);
+      }
+    }
     return null;
   });
 }
@@ -147,8 +183,9 @@ async function loadCandidate(c, target) {
 }
 
 export async function buildSubtitle(token) {
-  const { c, t: target, v: video } = decodeToken(token);
-  return cached('out', token, 30 * 86400, async () => {
+  const { c, t: target, v } = decodeToken(token);
+  const video = completeVideo(target, v);
+  return cached('out', `${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -157,7 +194,7 @@ export async function buildSubtitle(token) {
       return { srt: toSrt(cues), status: 'unsynced' };
     }
     const r = syncCues(ref, cues);
-    log('sync', c.source, c.release, `ref=${ref.kind}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW');
+    log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW');
     return { srt: toSrt(r.cues), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
   });
 }
@@ -167,6 +204,7 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   if (!target || target.kind !== 'imdb') return [];
   const extra = parseExtra(extraStr);
   const video = { videoHash: extra.videoHash || null, videoSize: extra.videoSize || null, filename: extra.filename || null };
+  rememberVideo(target, video);
   const found = await findCandidates(target, video);
   const cands = found.slice(0, found[0]?.mt ? 2 : 12);
   log('list', id, video.filename, `${cands.length} candidates`);

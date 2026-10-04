@@ -168,13 +168,31 @@ export function refineChunks(refSig, cues, ratio, offset, { chunk = 120, range =
   return { cues: out, offsets };
 }
 
+const ONSET = 0.5;
+
+// Translations often merge or stretch lines, which blurs interval overlap. Matching only
+// where lines start is insensitive to line length, so it is tried when overlap fails.
+function onsetSync(ref, cues) {
+  const ref2 = { ...ref, speech: ref.speech.map(([s]) => [s, s + ONSET]) };
+  const cues2 = cues.map((c) => ({ ...c, end: c.start + ONSET }));
+  const g = globalAlign(ref2, cues2);
+  if (g.z < 6) return { g, cues: null };
+  const { cues: r2, offsets } = refineChunks(g.refSig, cues2, g.ratio, g.offset, { minGain: 3 });
+  const out = cues.map((c, i) => ({ ...c, start: r2[i].start, end: r2[i].start + (c.end - c.start) * g.ratio }));
+  for (let i = 1; i < out.length; i++) if (out[i].end < out[i].start + 0.3) out[i].end = out[i].start + 0.3;
+  return { g, cues: out, offsets };
+}
+
 export function syncCues(ref, cues) {
   if (!cues.length || !ref.speech.length) return { cues, confident: false };
   const g = globalAlign(ref, cues);
-  const confident = g.z >= 6;
-  if (!confident) return { cues, confident: false, ...strip(g) };
-  const { cues: refined, offsets } = refineChunks(g.refSig, cues, g.ratio, g.offset);
-  return { cues: refined, confident: true, offsets, ...strip(g) };
+  if (g.z >= 6) {
+    const { cues: refined, offsets } = refineChunks(g.refSig, cues, g.ratio, g.offset);
+    return { cues: refined, confident: true, method: 'overlap', offsets, ...strip(g) };
+  }
+  const o = onsetSync(ref, cues);
+  if (o.cues) return { cues: o.cues, confident: true, method: 'onset', offsets: o.offsets, ...strip(o.g) };
+  return { cues, confident: false, ...strip(g.z >= o.g.z ? g : o.g) };
 }
 
 function strip(g) {

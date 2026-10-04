@@ -52,3 +52,18 @@ test('reports low confidence on unrelated subtitles', () => {
   const r = syncCues(asRef(randomCues(500, 3)), randomCues(500, 99));
   assert.equal(r.confident, false);
 });
+
+test('syncs a translation whose lines are merged and held longer', () => {
+  const ref = { windows: [[0, 1300]], speech: [] };
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let t = 10; t < 1200; t += 1.5 + rnd() * 6) ref.speech.push([t, t + 0.8 + rnd() * 1.5]);
+  const merged = [];
+  for (let i = 0; i < ref.speech.length; i += 2) {
+    const [s] = ref.speech[i];
+    merged.push({ start: s + 4, end: s + 4 + 5.5, text: 'x' });
+  }
+  const r = syncCues(ref, merged);
+  assert.equal(r.confident, true);
+  assert.ok(Math.abs(r.cues[10].start - ref.speech[20][0]) < 0.3);
+});
