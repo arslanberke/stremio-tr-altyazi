@@ -9,6 +9,7 @@ import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
 import * as torbox from './torbox.js';
+import { translateLines } from './translate.js';
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -67,11 +68,16 @@ export async function findCandidates(target, video) {
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
     ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
-  let all = results.flat().filter((c) => c.lang === 'tr');
-  if (target.season != null) {
-    const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
-    all = all.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true : true)
-      && m(c.release) !== false && m(c.fileName) !== false);
+  const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
+  const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true : true)
+    && m(c.release) !== false && m(c.fileName) !== false));
+  let all = sameEpisode(results.flat().filter((c) => c.lang === 'tr'));
+  if (!all.length) {
+    const en = await Promise.all([
+      os.search({ ...q, videoHash: video.videoHash, languages: 'en' }).catch(osErr),
+      ...alt.map((e) => os.search({ ...q, languages: 'en', osSeason: 1, osEpisode: e }).catch(osErr)),
+    ]);
+    all = sameEpisode(en.flat().filter((c) => c.lang === 'en')).map((c) => ({ ...c, mt: true }));
   }
   const seen = new Set();
   all = all.filter((c) => !seen.has(`${c.source}:${c.ref}`) && seen.add(`${c.source}:${c.ref}`));
@@ -118,12 +124,23 @@ async function getReference(video, target) {
   });
 }
 
+function wrap(text, max = 42) {
+  if (text.length <= max) return text;
+  const mid = text.length / 2;
+  let best = -1;
+  for (let i = text.indexOf(' '); i !== -1; i = text.indexOf(' ', i + 1)) if (best < 0 || Math.abs(i - mid) < Math.abs(best - mid)) best = i;
+  return best < 0 ? text : `${text.slice(0, best)}\n${text.slice(best + 1)}`;
+}
+
 async function loadCandidate(c, target) {
   const buf = c.source === 'opensubtitles' ? await os.download(c.ref) : await subdl.download(c.ref);
   const files = unpack(buf, c.fileName || 'sub.srt');
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');
-  return parseSubtitle(decodeText(f.data), { fps: c.fps });
+  const cues = parseSubtitle(decodeText(f.data), { fps: c.fps });
+  if (!c.mt) return cues;
+  const tr = await translateLines(cues.map((x) => x.text.replace(/\s*\n\s*/g, ' ')));
+  return cues.map((x, i) => ({ ...x, text: wrap(tr[i] || x.text) }));
 }
 
 export async function buildSubtitle(token) {
@@ -147,7 +164,8 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   if (!target || target.kind !== 'imdb') return [];
   const extra = parseExtra(extraStr);
   const video = { videoHash: extra.videoHash || null, videoSize: extra.videoSize || null, filename: extra.filename || null };
-  const cands = (await findCandidates(target, video)).slice(0, 12);
+  const found = await findCandidates(target, video);
+  const cands = found.slice(0, found[0]?.mt ? 2 : 12);
   log('list', id, video.filename, `${cands.length} candidates`);
   const items = cands.map((c, i) => {
     const token = encodeToken({ c, t: target, v: video });
@@ -166,9 +184,9 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     return '⏳ Senkronlanıyor';
   };
   return items.map(({ token, c, i }) => ({
-    id: `trsync-${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
+    id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
     lang: 'tur',
-    label: `${mark(i)} · ${c.source === 'opensubtitles' ? 'OpenSubtitles' : 'SubDL'} · ${c.release}`.slice(0, 140),
+    label: `${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${c.source === 'opensubtitles' ? 'OpenSubtitles' : 'SubDL'} · ${c.release}`.slice(0, 140),
   }));
 }
