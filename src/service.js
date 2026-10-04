@@ -130,7 +130,7 @@ async function getReference(video, target) {
         const list = await os.search({ imdb: target.imdb, season: target.season, episode: target.episode, videoHash: video.videoHash, languages: 'en,tr' });
         const m = list.find((c) => c.hashMatch && c.lang === 'en') || list.find((c) => c.hashMatch);
         if (m) {
-          const cues = parseSubtitle(decodeText(await os.download(m.ref)), { fps: m.fps });
+          const cues = parseSubtitle(decodeText(await os.download(m.ref, m)), { fps: m.fps });
           const ref = referenceFromSubtitle(cues, `opensubtitles-${m.lang}`);
           if (ref) {
             log('ref from opensubtitles hash match', m.release);
@@ -149,7 +149,7 @@ async function getReference(video, target) {
             && episodeMatches(c.fileName, target.season, target.episode, ctx) !== false));
         const best = list.map((c) => ({ c, s: releaseScore(video.filename, c.release) })).sort((a, b) => b.s - a.s)[0];
         if (best && best.s >= 5) {
-          const cues = parseSubtitle(decodeText(await os.download(best.c.ref)), { fps: best.c.fps });
+          const cues = parseSubtitle(decodeText(await os.download(best.c.ref, best.c)), { fps: best.c.fps });
           const ref = referenceFromSubtitle(cues, 'same-release');
           if (ref) {
             log('ref from same-release subtitle', best.c.release);
@@ -174,7 +174,7 @@ function wrap(text, max = 42) {
 
 async function loadCandidate(c, target) {
   const src = { opensubtitles: os, subdl, subsource, local }[c.source];
-  const buf = await src.download(c.ref);
+  const buf = await src.download(c.ref, c);
   const files = unpack(buf, c.fileName || 'sub.srt');
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');
