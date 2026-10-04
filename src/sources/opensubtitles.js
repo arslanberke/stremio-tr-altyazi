@@ -26,14 +26,15 @@ async function login() {
 export const enabled = () => Boolean(config.osKey);
 
 // languages: comma list like "tr" or "en"; returns normalized candidates
-export async function search({ imdb, season, episode, videoHash, languages = 'tr' }) {
+// osSeason/osEpisode: query another numbering (anime absolute); results are then unverified (loose).
+export async function search({ imdb, season, episode, videoHash, languages = 'tr', osSeason, osEpisode }) {
   if (!enabled()) return [];
   const num = String(Number(imdb.replace('tt', '')));
   const p = { languages };
   if (season != null) {
     p.parent_imdb_id = num;
-    p.season_number = String(season);
-    p.episode_number = String(episode);
+    p.season_number = String(osSeason ?? season);
+    p.episode_number = String(osEpisode ?? episode);
   } else p.imdb_id = num;
   if (videoHash) p.moviehash = videoHash;
   const qs = Object.keys(p).sort().map((k) => `${k}=${encodeURIComponent(p[k])}`).join('&');
@@ -41,7 +42,8 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
   return (d.data || []).flatMap((s) => {
     const a = s.attributes;
     const fd = a.feature_details || {};
-    if (season != null && (fd.season_number !== season || fd.episode_number !== episode)) return [];
+    const loose = osEpisode != null;
+    if (season != null && !loose && (fd.season_number !== season || fd.episode_number !== episode)) return [];
     return (a.files || []).map((f) => ({
       source: 'opensubtitles',
       ref: String(f.file_id),
@@ -54,6 +56,7 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
       fromTrusted: Boolean(a.from_trusted),
       season,
       episode,
+      loose,
     }));
   });
 }

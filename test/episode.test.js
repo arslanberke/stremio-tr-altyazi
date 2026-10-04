@@ -14,7 +14,18 @@ test('1x04 is never treated as episode 104 or 10', () => {
   assert.equal(episodeMatches('Show.1x04.srt', 1, 4), true);
   assert.equal(episodeMatches('Show.S01E04.srt', 1, 10), false);
   assert.equal(episodeMatches('Show.S01E10.srt', 1, 4), false);
-  assert.equal(episodeMatches('Show.104.srt', 1, 4), null);
+  assert.equal(episodeMatches('Show.104.srt', 1, 4), true);
+  assert.equal(episodeMatches('Show.110.srt', 1, 4), false);
+});
+
+test('anime absolute numbering: Naruto 1x4 is not episode 104', () => {
+  const ctx = { absolute: 4, longRunning: true };
+  assert.equal(episodeMatches('Naruto_104_[AonE][7A50F662]', 1, 4, ctx), false);
+  assert.equal(episodeMatches('104._Run_Idate__Run__Nagi_Island_Awaits', 1, 4, ctx), false);
+  assert.equal(episodeMatches('Naruto 104', 1, 4, ctx), false);
+  assert.equal(episodeMatches('[HorribleSubs] Naruto - 04 [720p].srt', 1, 4, ctx), true);
+  assert.equal(episodeMatches('Naruto.S01E04.srt', 1, 4, ctx), true);
+  assert.equal(episodeMatches('Naruto 1080p x264 2002', 1, 4, ctx), null);
 });
 
 test('rejects other seasons', () => {

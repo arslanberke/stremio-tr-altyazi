@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { cached } from './cache.js';
+import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
 import { decodeText, parseSubtitle, toSrt } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
@@ -30,16 +31,47 @@ function videoKey(v) {
   return v.videoHash || `${v.videoSize}:${v.filename}`;
 }
 
+export async function episodeContext(imdb, season, episode) {
+  if (!imdb || season == null) return {};
+  try {
+    const meta = await cached('cinemeta', imdb, 7 * 86400, async () => {
+      const d = await fetchJson(`https://v3-cinemeta.strem.io/meta/series/${imdb}.json`);
+      return (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode)]);
+    });
+    const eps = meta.filter(([s, e]) => s > 0 && e > 0).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const idx = eps.findIndex(([s, e]) => s === season && e === episode);
+    const perSeason = {};
+    for (const [s] of eps) perSeason[s] = (perSeason[s] || 0) + 1;
+    return {
+      absolute: idx >= 0 ? idx + 1 : undefined,
+      longRunning: eps.length >= 100 || Object.values(perSeason).some((n) => n >= 100),
+    };
+  } catch (e) {
+    log('cinemeta', e.message);
+    return {};
+  }
+}
+
 export async function findCandidates(target, video) {
   const q = { imdb: target.imdb, season: target.season, episode: target.episode };
-  const [a, b] = await Promise.all([
-    os.search({ ...q, videoHash: video.videoHash, languages: 'tr' }).catch((e) => (log('os search', e.message), [])),
+  const ctx = await episodeContext(target.imdb, target.season, target.episode);
+  const alt = [];
+  if (ctx.longRunning && ctx.absolute) {
+    for (const e of new Set([ctx.absolute, ctx.absolute % 100 || 100])) {
+      if (!(target.season === 1 && e === target.episode)) alt.push(e);
+    }
+  }
+  const osErr = (e) => (log('os search', e.message), []);
+  const results = await Promise.all([
+    os.search({ ...q, videoHash: video.videoHash, languages: 'tr' }).catch(osErr),
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
+    ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
-  let all = [...a, ...b].filter((c) => c.lang === 'tr');
+  let all = results.flat().filter((c) => c.lang === 'tr');
   if (target.season != null) {
-    all = all.filter((c) => episodeMatches(c.release, target.season, target.episode) !== false
-      && episodeMatches(c.fileName, target.season, target.episode) !== false);
+    const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
+    all = all.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true : true)
+      && m(c.release) !== false && m(c.fileName) !== false);
   }
   const seen = new Set();
   all = all.filter((c) => !seen.has(`${c.source}:${c.ref}`) && seen.add(`${c.source}:${c.ref}`));
@@ -89,7 +121,7 @@ async function getReference(video, target) {
 async function loadCandidate(c, target) {
   const buf = c.source === 'opensubtitles' ? await os.download(c.ref) : await subdl.download(c.ref);
   const files = unpack(buf, c.fileName || 'sub.srt');
-  const f = pickFile(files, target.season, target.episode);
+  const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');
   return parseSubtitle(decodeText(f.data), { fps: c.fps });
 }

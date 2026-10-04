@@ -35,12 +35,30 @@ export function parseSeason(name) {
   return null;
 }
 
+// Standalone 2-4 digit numbers that may be episode numbers (e.g. "Naruto_104_[AonE]").
+export function bareNumbers(name) {
+  const s = String(name || '')
+    .replace(/\.(srt|ass|ssa|sub|vtt|txt|zip|rar|mkv|mp4|avi)$/i, '')
+    .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, ' ')
+    .replace(/\b(19|20)\d{2}\b/g, ' ')
+    .replace(/\b\d{3,4}[pi]\b|\b[xh][ .]?26[45]\b|\b\d+[ -]?bits?\b|\b\d\.\d\b|\b(?:ddp?|aac|ac3|dts|eac3)[ .]?\d(?:\.\d)?\b/gi, ' ');
+  return [...s.matchAll(/(?:^|[^a-z0-9])(?:e|ep|episode)?[ ._-]?(\d{2,4})(?:v\d)?(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
+}
+
+// ctx: { absolute, longRunning } from the series episode list (anime use absolute numbering).
 // true = matches, false = definitely another episode, null = no episode info in name
-export function episodeMatches(name, season, episode) {
+export function episodeMatches(name, season, episode, ctx = {}) {
   const p = parseEpisode(name);
   if (p) return p.season === season && episode >= p.from && episode <= p.to;
   const ss = parseSeason(name);
   if (ss != null && ss !== season) return false;
+  const nums = bareNumbers(name);
+  if (nums.length) {
+    const { absolute, longRunning } = ctx;
+    const ok = (n) => n === absolute
+      || (!longRunning && (n === episode || n === season * 100 + episode));
+    return nums.some(ok) ? true : false;
+  }
   return null;
 }
 

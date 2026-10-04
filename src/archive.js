@@ -17,12 +17,12 @@ export function unpack(buf, name = 'sub.srt') {
 }
 
 // Pick the file for the requested episode; never guess across episodes.
-export function pickFile(files, season, episode) {
+export function pickFile(files, season, episode, ctx = {}) {
   if (season == null) {
     return files.filter((f) => !/sample/i.test(f.name)).sort((a, b) => b.data.length - a.data.length)[0] || null;
   }
-  const exact = files.filter((f) => episodeMatches(f.name, season, episode) === true);
+  const exact = files.filter((f) => episodeMatches(f.name, season, episode, ctx) === true);
   if (exact.length) return exact[0];
-  if (files.length === 1 && episodeMatches(files[0].name, season, episode) === null) return files[0];
+  if (files.length === 1 && episodeMatches(files[0].name, season, episode, ctx) === null) return files[0];
   return null;
 }
