@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY src ./src
+COPY data ./data
 ENV PORT=7860 CACHE_DIR=/tmp/cache
 EXPOSE 7860
 USER node
