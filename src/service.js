@@ -229,7 +229,7 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   return items.map(({ token, c, i }) => ({
     id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
-    lang: `** TR${i + 1}${c.mt ? ' Makine' : ''}${i === 0 && firstStatus === 'synced' ? ' Senkron' : ''}`,
-    label: `${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
+    lang: '** TR Senkron',
+    label: `TR${i + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
 }
