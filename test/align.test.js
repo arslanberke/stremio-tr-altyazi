@@ -67,3 +67,14 @@ test('syncs a translation whose lines are merged and held longer', () => {
   assert.equal(r.confident, true);
   assert.ok(Math.abs(r.cues[10].start - ref.speech[20][0]) < 0.3);
 });
+
+test('follows a cut that falls inside a chunk without stacking lines', () => {
+  const truth = randomCues(400);
+  const cut = 650;
+  const subs = truth.map((c) => (c.start < cut ? { ...c, start: c.start - 3.9, end: c.end - 3.9 } : { ...c }));
+  const r = syncCues(asRef(truth), subs);
+  assert.ok(r.confident);
+  const after = truth.findIndex((c) => c.start >= cut);
+  for (let i = after - 3; i < after + 6; i++) assert.ok(Math.abs(r.cues[i].start - truth[i].start) < 0.3, `cue ${i}`);
+  for (let i = 1; i < r.cues.length; i++) assert.ok(r.cues[i].start >= r.cues[i - 1].end - 1e-9 || r.cues[i].start - r.cues[i - 1].start < 0.3, `stack ${i}`);
+});

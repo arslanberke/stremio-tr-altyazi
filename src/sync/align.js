@@ -155,14 +155,44 @@ export function refineChunks(refSig, cues, ratio, offset, { chunk = 120, range =
     const gain = bestScore - base;
     offsets.push(gain >= minGain && gain >= 0.25 * known ? bestOff : offset);
   }
-  groups.forEach((g, gi) => {
-    for (const c of g) {
-      c.start = c.start * ratio + offsets[gi];
-      c.end = c.end * ratio + offsets[gi];
+  // A cut rarely falls on a chunk boundary: move each boundary between two different
+  // offsets to the cue where the switch scores best, so lines near the cut follow it.
+  const per = groups.map((g, gi) => g.map(() => offsets[gi]));
+  for (let gi = 0; gi + 1 < groups.length; gi++) {
+    const a = offsets[gi];
+    const b = offsets[gi + 1];
+    if (a === b) continue;
+    const both = [...groups[gi], ...groups[gi + 1]];
+    const sa = both.map((c) => scoreAt(refSig, [c], ratio, a));
+    const sb = both.map((c) => scoreAt(refSig, [c], ratio, b));
+    let tail = sb.reduce((x, y) => x + y, 0);
+    let head = 0;
+    let bestK = groups[gi].length;
+    let best = -Infinity;
+    for (let k = 0; k <= both.length; k++) {
+      if (head + tail > best + 1e-9 || (Math.abs(head + tail - best) <= 1e-9 && Math.abs(k - groups[gi].length) < Math.abs(bestK - groups[gi].length))) {
+        best = head + tail;
+        bestK = k;
+      }
+      if (k < both.length) { head += sa[k]; tail -= sb[k]; }
     }
+    const n1 = groups[gi].length;
+    for (let k = 0; k < both.length; k++) {
+      const v = k < bestK ? a : b;
+      if (k < n1) per[gi][k] = v;
+      else per[gi + 1][k - n1] = v;
+    }
+  }
+  groups.forEach((g, gi) => {
+    g.forEach((c, k) => {
+      c.start = c.start * ratio + per[gi][k];
+      c.end = c.end * ratio + per[gi][k];
+    });
   });
   for (let i = 1; i < out.length; i++) {
     if (out[i].start < out[i - 1].start) out[i].start = out[i - 1].start;
+    // Where the timeline jumps back at a cut, shorten the earlier line instead of stacking two lines.
+    if (out[i - 1].end > out[i].start && out[i].start - out[i - 1].start >= 0.3) out[i - 1].end = out[i].start;
     if (out[i].end < out[i].start + 0.3) out[i].end = out[i].start + 0.3;
   }
   return { cues: out, offsets };

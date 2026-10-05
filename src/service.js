@@ -187,7 +187,7 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v2:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
