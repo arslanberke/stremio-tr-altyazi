@@ -215,22 +215,26 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     const token = encodeToken({ c, t: target, v: video });
     return { token, c, i };
   });
-  let firstStatus = null;
-  if (items.length) {
-    const first = buildSubtitle(items[0].token).then((o) => o.status).catch((e) => (log('prepare failed', e.message), 'error'));
-    firstStatus = await Promise.race([first, new Promise((r) => setTimeout(() => r(null), 12000))]);
-  }
+  // Every candidate is checked against the video in the background. One that cannot be
+  // aligned to a text/image reference from the file itself is another episode or show.
+  const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: 'error' })));
+  const done = new Array(items.length).fill(null);
+  results.forEach((p, i) => p.then((o) => { done[i] = o; }));
+  await Promise.race([Promise.all(results), new Promise((r) => setTimeout(r, 15000))]);
+  const wrong = (o) => o && o.status === 'unsynced' && o.ref && o.ref !== 'audio';
+  const kept = items.filter(({ c }, i) => c.mt || !wrong(done[i]));
+  if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
   const host = config.publicUrl || baseUrl;
-  const mark = (i) => {
-    if (i > 0) return '⏳ Seçilince senkronlanır';
-    if (firstStatus === 'synced') return '✅ Videoya senkron';
-    if (firstStatus === 'unsynced') return '⚠️ Senkronlanamadı';
-    return '⏳ Senkronlanıyor';
+  const mark = (o) => {
+    if (!o) return '⏳ Seçilince senkronlanır';
+    if (o.status === 'synced') return '✅ Videoya senkron';
+    if (o.status === 'unsynced') return '⚠️ Senkronlanamadı';
+    return '❌ İndirilemedi';
   };
-  return items.map(({ token, c, i }) => ({
+  return kept.map(({ token, c, i }, n) => ({
     id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
     lang: '** TR Senkron',
-    label: `TR${i + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(i)} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
+    label: `TR${n + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(done[i])} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
 }
