@@ -4,7 +4,7 @@ import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
 import { decodeText, parseSubtitle, toSrt } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
-import { syncCues } from './sync/align.js';
+import { syncCues, driftReport } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
@@ -187,7 +187,7 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v2:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v3:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -196,7 +196,8 @@ export async function buildSubtitle(token) {
       return { srt: toSrt(cues), status: 'unsynced' };
     }
     const r = syncCues(ref, cues);
-    log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW');
+    const check = r.confident ? driftReport(ref, r.cues) : null;
+    log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(r.cues), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
   });
 }

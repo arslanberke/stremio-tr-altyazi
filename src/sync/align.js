@@ -198,6 +198,73 @@ export function refineChunks(refSig, cues, ratio, offset, { chunk = 120, range =
   return { cues: out, offsets };
 }
 
+// Per-line offsets via Viterbi (alass-style): every line may take any offset within
+// ±range of the global one, and changing offset between lines costs `penalty`, so the
+// timeline only jumps where the reference clearly supports a cut.
+export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty = 150 } = {}) {
+  const pre = new Float64Array(refSig.length + 1);
+  for (let i = 0; i < refSig.length; i++) pre[i + 1] = pre[i] + refSig[i];
+  const R = Math.round(range / BIN);
+  const D = 2 * R + 1;
+  const n = cues.length;
+  const back = new Int32Array(n * D);
+  let prev = new Float64Array(D);
+  let cur = new Float64Array(D);
+  const lineScore = (c, k) => {
+    const off = offset + (k - R) * BIN;
+    const s = Math.min(refSig.length, Math.max(0, Math.floor((c.start * ratio + off) / BIN)));
+    const e = Math.min(refSig.length, Math.max(s, Math.ceil((c.end * ratio + off) / BIN)));
+    return pre[e] - pre[s];
+  };
+  for (let k = 0; k < D; k++) prev[k] = lineScore(cues[0], k) - (k === R ? 0 : penalty);
+  for (let i = 1; i < n; i++) {
+    let bk = 0;
+    for (let k = 1; k < D; k++) if (prev[k] > prev[bk]) bk = k;
+    const jump = prev[bk] - penalty;
+    for (let k = 0; k < D; k++) {
+      const stay = prev[k];
+      if (stay >= jump) { cur[k] = stay; back[i * D + k] = k; } else { cur[k] = jump; back[i * D + k] = bk; }
+      cur[k] += lineScore(cues[i], k);
+    }
+    [prev, cur] = [cur, prev];
+  }
+  let k = 0;
+  for (let j = 1; j < D; j++) if (prev[j] > prev[k] || (prev[j] === prev[k] && Math.abs(j - R) < Math.abs(k - R))) k = j;
+  const offs = new Array(n);
+  for (let i = n - 1; i >= 0; i--) { offs[i] = offset + (k - R) * BIN; if (i) k = back[i * D + k]; }
+  const out = cues.map((c, i) => ({ ...c, start: c.start * ratio + offs[i], end: c.end * ratio + offs[i] }));
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].start < out[i - 1].start) out[i].start = out[i - 1].start;
+    if (out[i - 1].end > out[i].start && out[i].start - out[i - 1].start >= 0.3) out[i - 1].end = out[i].start;
+    if (out[i].end < out[i].start + 0.3) out[i].end = out[i].start + 0.3;
+  }
+  const offsets = [];
+  offs.forEach((o, i) => { if (!i || Math.abs(o - offs[i - 1]) > 1e-9) offsets.push([Number(cues[i].start.toFixed(1)), Number(o.toFixed(1))]); });
+  return { cues: out, offsets };
+}
+
+// Lines whose start is not near any reference line start, grouped into runs; a run of
+// several such lines means a stretch that is still out of sync.
+export function driftReport(ref, cues, { tol = 1, minRun = 3 } = {}) {
+  const starts = ref.speech.map(([s]) => s).sort((a, b) => a - b);
+  const known = (t) => ref.windows.some(([a, b]) => t >= a && t <= b);
+  const near = (t) => {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (starts[m] < t) lo = m + 1; else hi = m; }
+    return Math.min(Math.abs(starts[lo] - t), lo ? Math.abs(starts[lo - 1] - t) : Infinity);
+  };
+  let checked = 0, good = 0;
+  const runs = [];
+  let run = [];
+  for (const c of cues) {
+    if (!known(c.start)) continue;
+    checked++;
+    if (near(c.start) <= tol) { good++; if (run.length >= minRun) runs.push([run[0], run.at(-1)]); run = []; } else run.push(c.start);
+  }
+  if (run.length >= minRun) runs.push([run[0], run.at(-1)]);
+  return { matched: checked ? good / checked : null, drift: runs.map(([a, b]) => [Number(a.toFixed(1)), Number(b.toFixed(1))]) };
+}
+
 const ONSET = 0.5;
 
 // Translations often merge or stretch lines, which blurs interval overlap. Matching only
@@ -207,7 +274,7 @@ function onsetSync(ref, cues) {
   const cues2 = cues.map((c) => ({ ...c, end: c.start + ONSET }));
   const g = globalAlign(ref2, cues2);
   if (g.z < 6) return { g, cues: null };
-  const { cues: r2, offsets } = refineChunks(g.refSig, cues2, g.ratio, g.offset, { minGain: 3 });
+  const { cues: r2, offsets } = refineLines(g.refSig, cues2, g.ratio, g.offset, { penalty: 30 });
   const out = cues.map((c, i) => ({ ...c, start: r2[i].start, end: r2[i].start + (c.end - c.start) * g.ratio }));
   for (let i = 1; i < out.length; i++) if (out[i].end < out[i].start + 0.3) out[i].end = out[i].start + 0.3;
   return { g, cues: out, offsets };
@@ -217,7 +284,7 @@ export function syncCues(ref, cues) {
   if (!cues.length || !ref.speech.length) return { cues, confident: false };
   const g = globalAlign(ref, cues);
   if (g.z >= 6) {
-    const { cues: refined, offsets } = refineChunks(g.refSig, cues, g.ratio, g.offset);
+    const { cues: refined, offsets } = refineLines(g.refSig, cues, g.ratio, g.offset);
     return { cues: refined, confident: true, method: 'overlap', offsets, ...strip(g) };
   }
   const o = onsetSync(ref, cues);
