@@ -202,6 +202,27 @@ export async function buildSubtitle(token) {
   });
 }
 
+// Aligned against a text/image track of the file itself and still no fit: wrong episode/show.
+const isWrong = (o) => Boolean(o && o.status === 'unsynced' && o.ref && o.ref !== 'audio');
+
+// If the chosen subtitle turns out not to fit this video, serve another candidate that does.
+export async function serveSubtitle(token) {
+  const out = await buildSubtitle(token).catch((error) => ({ error }));
+  if (!out.error && !isWrong(out)) return out;
+  const { c, t: target, v } = decodeToken(token);
+  const video = completeVideo(target, v);
+  const others = (await findCandidates(target, video)).filter((x) => !x.mt && !(x.source === c.source && x.ref === c.ref)).slice(0, 6);
+  for (const o of others) {
+    const r = await buildSubtitle(encodeToken({ c: o, t: target, v: video })).catch(() => null);
+    if (r?.status === 'synced') {
+      log('fallback', c.release, '->', o.release);
+      return r;
+    }
+  }
+  if (out.error) throw out.error;
+  return out;
+}
+
 export async function listSubtitles(type, id, extraStr, baseUrl) {
   const target = parseStremioId(type, id);
   if (!target || target.kind !== 'imdb') return [];
@@ -221,8 +242,7 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   const done = new Array(items.length).fill(null);
   results.forEach((p, i) => p.then((o) => { done[i] = o; }));
   await Promise.race([Promise.all(results), new Promise((r) => setTimeout(r, 15000))]);
-  const wrong = (o) => o && o.status === 'unsynced' && o.ref && o.ref !== 'audio';
-  const kept = items.filter(({ c }, i) => c.mt || !wrong(done[i]));
+  const kept = items.filter(({ c }, i) => c.mt || !isWrong(done[i]));
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
   const host = config.publicUrl || baseUrl;
   const mark = (o) => {

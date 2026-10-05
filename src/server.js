@@ -1,6 +1,6 @@
 import express from 'express';
 import { config } from './config.js';
-import { listSubtitles, buildSubtitle } from './service.js';
+import { listSubtitles, serveSubtitle } from './service.js';
 
 const manifest = {
   id: 'community.tr-altyazi-sync',
@@ -46,7 +46,7 @@ app.get(['/subtitles/:type/:id/:extra.json', '/subtitles/:type/:id.json'], async
 
 app.get('/sub/:token.srt', async (req, res) => {
   try {
-    const out = await buildSubtitle(req.params.token);
+    const out = await serveSubtitle(req.params.token);
     res.setHeader('X-Sync-Status', out.status);
     res.type('application/x-subrip; charset=utf-8').send(out.srt);
   } catch (e) {
@@ -62,3 +62,7 @@ app.get('/sub/:token.srt', async (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.listen(config.port, () => console.log(`listening on :${config.port}`));
+
+// Render's free plan sleeps after 15 idle minutes; a cold start is too slow for the TV's subtitle list.
+const selfUrl = config.publicUrl || process.env.RENDER_EXTERNAL_URL;
+if (selfUrl) setInterval(() => fetch(`${selfUrl}/manifest.json`).catch(() => {}), 10 * 60 * 1000);
