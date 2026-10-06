@@ -109,7 +109,7 @@ export async function findCandidates(target, video) {
 
 async function getReference(video, target) {
   const key = videoKey(video);
-  return cached('ref', key, 30 * 86400, async () => {
+  return cached('ref', `v2:${key}`, 30 * 86400, async () => {
     if (torbox.enabled() && (video.videoSize || video.filename)) {
       try {
         const hit = await torbox.findFile(video);
