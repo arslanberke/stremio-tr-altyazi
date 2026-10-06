@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { cached } from './cache.js';
 import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
-import { decodeText, parseSubtitle, toSrt, flattenOverlaps } from './subformat.js';
+import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
 import { syncCues, driftReport } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
@@ -187,18 +187,18 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v4:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v5:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
     if (!ref) {
       log('no reference, serving as-is', c.release);
-      return { srt: toSrt(flattenOverlaps(cues)), status: 'unsynced' };
+      return { srt: toSrt(extendForReading(flattenOverlaps(cues))), status: 'unsynced' };
     }
     const r = syncCues(ref, cues);
     const check = r.confident ? driftReport(ref, r.cues) : null;
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
-    return { srt: toSrt(flattenOverlaps(r.cues)), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
+    return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
   });
 }
 

@@ -117,6 +117,18 @@ export function flattenOverlaps(cues, { snap = 0.25 } = {}) {
   return out;
 }
 
+// Keep each line up long enough to read (~15 chars/s, as in professional subtitling guidelines),
+// by extending its end into the silence before the next line; start times stay on the speech.
+export function extendForReading(cues, { cps = 15, min = 1.2, gap = 0.1, max = 7 } = {}) {
+  return cues.map((c, i) => {
+    const need = Math.min(max, Math.max(min, c.text.replace(/\s+/g, '').length / cps));
+    if (c.end - c.start >= need) return c;
+    const next = cues[i + 1];
+    const limit = next ? Math.max(c.end, next.start - gap) : Infinity;
+    return { ...c, end: Math.min(c.start + need, limit) };
+  });
+}
+
 export function toSrt(cues) {
   return cues
     .filter((c) => c.end > 0)
