@@ -94,6 +94,29 @@ function fmt(t) {
   return `${p(h)}:${p(m)}:${p(s)},${p(r, 3)}`;
 }
 
+// TV players stack overlapping cues unpredictably (lines swap places, flicker). Turn overlaps
+// (e.g. a long sign over dialogue) into consecutive cues that show all active lines in a fixed order.
+export function flattenOverlaps(cues, { snap = 0.25 } = {}) {
+  const list = cues.filter((c) => c.end > c.start).map((c, i) => ({ ...c, i })).sort((a, b) => a.start - b.start || a.i - b.i);
+  if (!list.some((c, k) => k && c.start < list[k - 1].end)) return list.map(({ i, ...c }) => c);
+  const times = [...new Set(list.flatMap((c) => [c.start, c.end]))].sort((a, b) => a - b);
+  const snapTo = new Map();
+  let head = times[0];
+  for (const t of times) { if (t - head > snap) head = t; snapTo.set(t, head); }
+  const span = list.map((c) => ({ ...c, start: snapTo.get(c.start), end: snapTo.get(c.end) })).filter((c) => c.end > c.start);
+  const cuts = [...new Set(span.flatMap((c) => [c.start, c.end]))].sort((a, b) => a - b);
+  const out = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const [a, b] = [cuts[k], cuts[k + 1]];
+    const text = span.filter((c) => c.start <= a && c.end >= b).map((c) => c.text).join('\n');
+    if (!text) continue;
+    const last = out.at(-1);
+    if (last && last.text === text && last.end === a) last.end = b;
+    else out.push({ start: a, end: b, text });
+  }
+  return out;
+}
+
 export function toSrt(cues) {
   return cues
     .filter((c) => c.end > 0)
