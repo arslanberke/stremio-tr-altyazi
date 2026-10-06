@@ -49,7 +49,7 @@ function file(ns, key) {
   return path.join(config.cacheDir, ns, `${h}.json`);
 }
 
-export async function cached(ns, key, ttlSec, fn) {
+export async function cached(ns, key, ttlSec, fn, keep = () => true) {
   const k = `${ns}:${key}`;
   const m = mem.get(k);
   if (m && m.exp > Date.now()) return m.value;
@@ -71,6 +71,7 @@ export async function cached(ns, key, ttlSec, fn) {
       return r.value;
     }
     const value = await fn();
+    if (!keep(value)) return value;
     const d = { exp: Date.now() + ttlSec * 1000, value };
     mem.set(k, d);
     if (mem.size > 2000) mem.delete(mem.keys().next().value);

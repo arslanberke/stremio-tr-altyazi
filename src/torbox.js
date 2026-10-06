@@ -24,8 +24,9 @@ function baseName(n) {
 
 // Find the file the user is playing, by exact size (and name when available).
 export async function findFile({ videoSize, filename }) {
-  if (!enabled() || !videoSize) return null;
+  if (!enabled() || (!videoSize && !filename)) return null;
   const size = Number(videoSize);
+  const fn = baseName(filename);
   for (const fresh of [false, true]) {
     for (const kind of KINDS) {
       let items;
@@ -33,11 +34,10 @@ export async function findFile({ videoSize, filename }) {
       const hits = [];
       for (const it of items) {
         for (const f of it.files || []) {
-          if (Number(f.size) === size) hits.push({ kind, itemId: it.id, fileId: f.id, name: f.name });
+          if (videoSize ? Number(f.size) === size : fn && baseName(f.name) === fn) hits.push({ kind, itemId: it.id, fileId: f.id, name: f.name });
         }
       }
       if (hits.length) {
-        const fn = baseName(filename);
         return hits.find((h) => fn && baseName(h.name) === fn) || hits[0];
       }
     }

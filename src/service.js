@@ -110,7 +110,7 @@ export async function findCandidates(target, video) {
 async function getReference(video, target) {
   const key = videoKey(video);
   return cached('ref', key, 30 * 86400, async () => {
-    if (torbox.enabled() && video.videoSize) {
+    if (torbox.enabled() && (video.videoSize || video.filename)) {
       try {
         const hit = await torbox.findFile(video);
         if (hit) {
@@ -161,7 +161,7 @@ async function getReference(video, target) {
       }
     }
     return null;
-  });
+  }, Boolean);
 }
 
 function wrap(text, max = 42) {
@@ -187,7 +187,7 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v6:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v7:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -199,7 +199,7 @@ export async function buildSubtitle(token) {
     const check = r.confident ? driftReport(ref, r.cues) : null;
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
-  });
+  }, (o) => o.status === 'synced' || Boolean(o.ref));
 }
 
 // Aligned against a text/image track of the file itself and still no fit: wrong episode/show.
