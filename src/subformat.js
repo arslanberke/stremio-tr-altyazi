@@ -17,20 +17,37 @@ function srtTime(t) {
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4].padEnd(3, '0')) / 1000;
 }
 
+const fullTime = (t) => (t.split(':').length === 2 ? `00:${t}` : t);
+
+// Line-based so a missing blank line between cues doesn't swallow the next cue into the previous one.
 function parseSrtLike(text) {
   const cues = [];
-  const blocks = text.replace(/\r/g, '').split(/\n\s*\n/);
-  for (const block of blocks) {
-    const lines = block.split('\n').filter((l) => l.trim() !== '');
-    const i = lines.findIndex((l) => l.includes('-->'));
-    if (i < 0) continue;
-    const [a, b] = lines[i].split('-->');
-    const start = srtTime(a.includes(':') && a.trim().split(':').length === 2 ? `00:${a}` : a);
-    const end = srtTime(b.trim().split(/\s/)[0].split(':').length === 2 ? `00:${b.trim().split(/\s/)[0]}` : b.trim().split(/\s/)[0]);
-    const body = lines.slice(i + 1).join('\n');
-    if (Number.isFinite(start) && Number.isFinite(end) && body) cues.push({ start, end: Math.max(end, start + 0.1), text: body });
+  let cur = null;
+  const lines = text.replace(/\r/g, '').split('\n');
+  const push = () => {
+    if (!cur) return;
+    while (cur.body.length && cur.body[cur.body.length - 1].trim() === '') cur.body.pop();
+    const body = cur.body.join('\n').trim();
+    if (Number.isFinite(cur.start) && Number.isFinite(cur.end) && body) cues.push({ start: cur.start, end: Math.max(cur.end, cur.start + 0.1), text: body });
+  };
+  for (const line of lines) {
+    if (line.includes('-->')) {
+      const [a, b] = line.split('-->');
+      const start = srtTime(fullTime(a.trim()));
+      const end = srtTime(fullTime((b || '').trim().split(/\s/)[0]));
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        if (cur && /^\s*\d+\s*$/.test(cur.body[cur.body.length - 1] || '')) cur.body.pop();
+        push();
+        cur = { start, end, body: [] };
+        continue;
+      }
+    }
+    if (!cur) continue;
+    if (line.trim() === '') { cur.body.push(''); continue; }
+    cur.body.push(line);
   }
-  return cues;
+  push();
+  return cues.map((c) => ({ ...c, text: c.text.split('\n').filter((l) => l.trim() !== '').join('\n') }));
 }
 
 function assTime(t) {

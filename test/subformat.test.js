@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flattenOverlaps, extendForReading } from '../src/subformat.js';
+import { flattenOverlaps, extendForReading, parseSubtitle } from '../src/subformat.js';
 
 test('turns a long sign over dialogue into non-overlapping cues', () => {
   const out = flattenOverlaps([
@@ -27,4 +27,11 @@ test('extends short lines for reading without touching the next line', () => {
   assert.equal(out[0].end, 12.4);
   assert.equal(out[1].end, 14);
   assert.ok(Math.abs(out[2].end - (14.1 + 24 / 15)) < 1e-9);
+});
+
+test('srt cue missing its blank line is not swallowed by the previous cue', () => {
+  const cues = parseSubtitle('110\n00:09:31,982 --> 00:09:37,315\n...öleceğiz!\n,\n111\n00:10:02,468 --> 00:10:05,699\nŞu sol elimdeki yara\nüstüne yemin ediyorum!\n\n112\n00:10:07,000 --> 00:10:09,000\nSon\n');
+  assert.equal(cues.length, 3);
+  assert.equal(cues[0].text, '...öleceğiz!\n,');
+  assert.equal(cues[1].text, 'Şu sol elimdeki yara\nüstüne yemin ediyorum!');
 });
