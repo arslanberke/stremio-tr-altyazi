@@ -8,7 +8,7 @@ const inflight = new Map();
 
 // Downloads count against provider quotas and the server's disk is wiped on every
 // deploy, so these namespaces are also kept in Supabase Storage.
-const PERSIST = new Set(['os-file', 'subdl-file', 'subsource-file', 'mt', 'out', 'ref']);
+const PERSIST = new Set(['os-file', 'subdl-file', 'subsource-file', 'altyazidb-file', 'mt', 'out', 'ref']);
 const BUCKET = 'stremio-cache';
 
 function remoteUrl(ns, key) {

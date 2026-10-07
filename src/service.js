@@ -9,6 +9,7 @@ import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
 import * as subsource from './sources/subsource.js';
+import * as altyazidb from './sources/altyazidb.js';
 import * as local from './sources/local.js';
 import * as torbox from './torbox.js';
 import { translateLines } from './translate.js';
@@ -87,6 +88,7 @@ export async function findCandidates(target, video) {
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
     local.search(q).catch((e) => (log('local search', e.message), [])),
     subsource.search(q).catch((e) => (log('subsource search', e.message), [])),
+    altyazidb.search(q).catch((e) => (log('altyazidb search', e.message), [])),
     ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
   const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
@@ -102,7 +104,7 @@ export async function findCandidates(target, video) {
   }
   const seen = new Set();
   all = all.filter((c) => !seen.has(`${c.source}:${c.ref}`) && seen.add(`${c.source}:${c.ref}`));
-  for (const c of all) c.rank = (c.hashMatch ? 100 : 0) + (c.source === 'local' ? 5 : 0) + releaseScore(video.filename, c.release) * 3 + Math.log10(1 + c.downloads) + (c.pack ? -1 : 0)
+  for (const c of all) c.rank = (c.hashMatch ? 100 : 0) + (c.source === 'local' ? 5 : 0) + releaseScore(video.filename, c.release) * 3 + Math.log10(1 + c.downloads) + (c.pack ? -1 : 0) + (c.ai ? -4 : 0)
     + (/\b(cd ?[12]|[12] ?cd)\b/i.test(c.release) ? -4 : 0) + (/\b(cam|ts|telesync|screener|scr)\b/i.test(c.release) ? -3 : 0);
   return all.sort((x, y) => y.rank - x.rank);
 }
@@ -173,7 +175,7 @@ function wrap(text, max = 42) {
 }
 
 async function loadCandidate(c, target) {
-  const src = { opensubtitles: os, subdl, subsource, local }[c.source];
+  const src = { opensubtitles: os, subdl, subsource, altyazidb, local }[c.source];
   const buf = await src.download(c.ref, { imdb: target.imdb, season: target.season, episode: target.episode, ...c });
   const files = unpack(buf, c.fileName || 'sub.srt');
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
@@ -255,6 +257,6 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
     lang: '** TR Senkron',
-    label: `TR${n + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(done[i])} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
+    label: `TR${n + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(done[i])} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', altyazidb: 'AltyaziDB', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
 }
