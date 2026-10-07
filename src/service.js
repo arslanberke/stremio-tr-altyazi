@@ -240,11 +240,11 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   });
   // Every candidate is checked against the video in the background. One that cannot be
   // aligned to a text/image reference from the file itself is another episode or show.
-  const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: 'error' })));
+  const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: /no matching episode/.test(e.message) ? 'absent' : 'error' })));
   const done = new Array(items.length).fill(null);
   results.forEach((p, i) => p.then((o) => { done[i] = o; }));
   await Promise.race([Promise.all(results), new Promise((r) => setTimeout(r, 15000))]);
-  const kept = items.filter(({ c }, i) => c.mt || !isWrong(done[i]));
+  const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])));
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
   const host = config.publicUrl || baseUrl;
   const mark = (o) => {
