@@ -45,7 +45,7 @@ export function bareNumbers(name) {
   const loose = [...s.matchAll(/(?:^|[^a-z0-9])(?:e|ep|episode)?[ ._-]?(\d{2,4})(?:v\d)?(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
   if (loose.length) return loose;
   // "Naruto45": number glued to the title
-  return [...s.matchAll(/(?<=[a-z]{3})(\d{2,4})(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1]));
+  return [...s.matchAll(/(?<=[a-z]{3})(\d{2,4})(?=$|[^a-z0-9])/gi)].map((m) => Number(m[1])).filter((n) => n < 1900 || n > 2099);
 }
 
 // ctx: { absolute, longRunning } from the series episode list (anime use absolute numbering).
@@ -96,5 +96,11 @@ export function releaseScore(videoName, subName) {
   const ga = releaseGroup(videoName);
   if (ga && (releaseGroup(subName) === ga || b.has(ga))) score += 5;
   for (const r of ['2160p', '1080p', '720p', '480p']) if (a.has(r) && b.has(r)) score += 1;
+  const norm = (n) => n.toLowerCase().replace(/\.(mkv|mp4|avi|srt|ass|ssa|sub)$/, '').replace(/[^a-z0-9]+/g, '');
+  if (norm(subName).includes(norm(videoName))) score += 8;
+  else {
+    const shared = [...a].filter((t) => b.has(t)).length;
+    if (a.size >= 4 && shared / new Set([...a, ...b]).size >= 0.8) score += 4;
+  }
   return score;
 }

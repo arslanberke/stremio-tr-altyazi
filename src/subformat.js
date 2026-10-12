@@ -96,9 +96,11 @@ function parseMicroDvd(text, fps) {
 
 export function parseSubtitle(text, { fps } = {}) {
   const t = text.replace(/^\uFEFF/, '');
-  if (/^\s*\[Script Info\]/i.test(t) || /^Dialogue:/im.test(t)) return parseAss(t);
-  if (/^\s*\{\d+\}\{\d*\}/m.test(t)) return parseMicroDvd(t, fps);
-  return parseSrtLike(t.replace(/^WEBVTT[^\n]*\n/, ''));
+  // Some files list a line out of time order (e.g. a sign added later); syncing assumes time order.
+  const cues = /^\s*\[Script Info\]/i.test(t) || /^Dialogue:/im.test(t) ? parseAss(t)
+    : /^\s*\{\d+\}\{\d*\}/m.test(t) ? parseMicroDvd(t, fps)
+    : parseSrtLike(t.replace(/^WEBVTT[^\n]*\n/, ''));
+  return cues.sort((a, b) => a.start - b.start);
 }
 
 function fmt(t) {

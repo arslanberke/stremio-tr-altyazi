@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues } from '../src/sync/align.js';
+import { syncCues, keepOrder, keepEvidence, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -77,4 +77,37 @@ test('follows a cut that falls inside a chunk without stacking lines', () => {
   const after = truth.findIndex((c) => c.start >= cut);
   for (let i = after - 3; i < after + 6; i++) assert.ok(Math.abs(r.cues[i].start - truth[i].start) < 0.3, `cue ${i}`);
   for (let i = 1; i < r.cues.length; i++) assert.ok(r.cues[i].start >= r.cues[i - 1].end - 1e-9 || r.cues[i].start - r.cues[i - 1].start < 0.3, `stack ${i}`);
+});
+
+test('a run of lines thrown before the line above it is put back on its neighbours\' offset', () => {
+  const cues = [[0, 4], [12, 16], [23, 27], [27, 31], [31, 34], [38, 40]].map(([start, end]) => ({ start, end }));
+  const offs = [-12, -12, -24, -24, -24, -12];
+  keepOrder(cues, offs);
+  assert.deepEqual(offs, [-12, -12, -12, -12, -12, -12]);
+});
+
+test('a real cut (offset never returns) is left alone', () => {
+  const cues = [[0, 4], [12, 16], [23, 27], [27, 31]].map(([start, end]) => ({ start, end }));
+  const offs = [-12, -12, -24, -24];
+  keepOrder(cues, offs);
+  assert.deepEqual(offs, [-12, -12, -24, -24]);
+});
+
+test('lines that jump without landing on reference speech of their own keep the previous offset', () => {
+  // Reference has speech until 100 s, then nothing (e.g. an ending song it doesn't subtitle).
+  const refSig = new Float64Array(2000).fill(-1);
+  for (let i = 0; i < 100 / BIN; i++) refSig[i] = 1;
+  const cues = [[80, 88], [92, 107], [130, 133], [133, 136], [140, 143], [150, 153]].map(([start, end]) => ({ start, end }));
+  const offs = [-10, -10, -40, -40, 20, 20];
+  keepEvidence(refSig, cues, offs);
+  assert.deepEqual(offs, [-10, -10, -10, -10, -10, -10]);
+});
+
+test('a jump onto new reference speech is kept', () => {
+  const refSig = new Float64Array(2000).fill(-1);
+  for (let i = 0; i < 200 / BIN; i++) refSig[i] = 1;
+  const cues = [[80, 88], [92, 95], [130, 133], [140, 143]].map(([start, end]) => ({ start, end }));
+  const offs = [-10, -10, 20, 20];
+  keepEvidence(refSig, cues, offs);
+  assert.deepEqual(offs, [-10, -10, 20, 20]);
 });

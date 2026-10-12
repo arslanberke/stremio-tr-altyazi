@@ -13,6 +13,7 @@ import * as altyazidb from './sources/altyazidb.js';
 import * as local from './sources/local.js';
 import * as torbox from './torbox.js';
 import { translateLines } from './translate.js';
+import { osHash } from './videohash.js';
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -42,15 +43,21 @@ function rememberVideo(target, video) {
   if (lastVideo.size > 500) lastVideo.delete(lastVideo.keys().next().value);
 }
 
+// The actual file's details win over the prefetched guess, which only fills in when nothing better came.
 function completeVideo(target, video) {
   if (video.videoHash || video.videoSize) return video;
   const m = lastVideo.get(targetKey(target));
-  return m && Date.now() - m.at < 3 * 3600 * 1000 ? m.video : video;
+  return withPrefetched(target, m && Date.now() - m.at < 3 * 3600 * 1000 ? m.video : video);
 }
 
 function videoKey(v) {
   return v.videoHash || `${v.videoSize}:${v.filename}`;
 }
+
+const episodeList = async (imdb) => (await cached('cinemeta', imdb, 7 * 86400, async () => {
+  const d = await fetchJson(`https://v3-cinemeta.strem.io/meta/series/${imdb}.json`);
+  return (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode)]);
+})).filter(([s, e]) => s > 0 && e > 0).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 
 export async function episodeContext(imdb, season, episode) {
   if (!imdb || season == null) return {};
@@ -92,8 +99,11 @@ export async function findCandidates(target, video) {
     ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
   const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
-  const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true : true)
-    && m(c.release) !== false && m(c.fileName) !== false));
+  const nums = [target.episode, ctx.absolute].filter(Boolean);
+  const covers = (t = '') => [...t.matchAll(/(?<!\d)(\d{1,3})\s*[-–~]\s*(\d{1,3})(?!\d)/g)]
+    .some(([, a, b]) => nums.some((n) => Number(a) <= n && n <= Number(b) && Number(b) - Number(a) < 400));
+  const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true || covers(c.release) : true)
+    && ((c.loose && covers(c.release)) || (m(c.release) !== false && m(c.fileName) !== false))));
   let all = sameEpisode(results.flat().filter((c) => c.lang === 'tr'));
   if (!all.length) {
     const en = await Promise.all([
@@ -189,7 +199,7 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v7:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v8:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -198,9 +208,9 @@ export async function buildSubtitle(token) {
       return { srt: toSrt(extendForReading(flattenOverlaps(cues))), status: 'unsynced' };
     }
     const r = syncCues(ref, cues);
-    const check = r.confident ? driftReport(ref, r.cues) : null;
+    const check = driftReport(ref, r.cues);
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
-    return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z };
+    return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };
   }, (o) => o.status === 'synced' || Boolean(o.ref));
 }
 
@@ -229,13 +239,16 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   const target = parseStremioId(type, id);
   if (!target || target.kind !== 'imdb') return [];
   const extra = parseExtra(extraStr);
-  const video = { videoHash: extra.videoHash || null, videoSize: extra.videoSize || null, filename: extra.filename || null };
-  rememberVideo(target, video);
+  const raw = { videoHash: extra.videoHash || null, videoSize: extra.videoSize || null, filename: extra.filename || null };
+  rememberVideo(target, raw);
+  const video = withPrefetched(target, raw);
   const found = await findCandidates(target, video);
-  const cands = found.slice(0, found[0]?.mt ? 2 : 12);
+  // More are checked than shown; the best-fitting ones are listed.
+  const cands = found[0]?.mt ? found.slice(0, 2) : pickTop(found, 12);
   log('list', id, video.filename, `${cands.length} candidates`);
+  const tv = raw.videoSize || raw.videoHash ? video : raw;
   const items = cands.map((c, i) => {
-    const token = encodeToken({ c, t: target, v: video });
+    const token = encodeToken({ c, t: target, v: tv });
     return { token, c, i };
   });
   // Every candidate is checked against the video in the background. One that cannot be
@@ -243,8 +256,16 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
   const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: /no matching episode/.test(e.message) ? 'absent' : 'error' })));
   const done = new Array(items.length).fill(null);
   results.forEach((p, i) => p.then((o) => { done[i] = o; }));
-  await Promise.race([Promise.all(results), new Promise((r) => setTimeout(r, 15000))]);
-  const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])));
+  Promise.all(results).then(() => prefetchNext(target, completeVideo(target, raw))).catch((e) => log('prefetch failed', e.message));
+  // A prefetched episode only waits for the subtitles that were prepared ahead; the rest keep syncing.
+  const ahead = video !== raw && new Set(pickTop(found, PREFETCH_TOP).map((c) => `${c.source}:${c.ref}`));
+  const wait = ahead ? results.filter((_, i) => ahead.has(`${items[i].c.source}:${items[i].c.ref}`)) : results;
+  await Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, 15000))]);
+  // TV shows no labels: the best subtitle must come first (synced, then best-fitting unsynced).
+  const rank = (o) => (!o ? 1 : o.status === 'synced' ? 0 : o.status === 'unsynced' ? 2 : 3);
+  const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
+    .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
+    .slice(0, 8);
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
   const host = config.publicUrl || baseUrl;
   const mark = (o) => {
@@ -259,4 +280,58 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     lang: '** TR Senkron',
     label: `TR${n + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(done[i])} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', altyazidb: 'AltyaziDB', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
+}
+
+// Up to `max`, at most 4 from one site first so one site's near-duplicates don't crowd out
+// other sites' releases; HI/CHI-style variants of one release count once until others got a slot.
+export function pickTop(found, max = 12, perSource = 4) {
+  const family = (c) => `${c.source}:${(c.release || c.ref).toLowerCase().split(/[^a-z0-9]+/).filter((t) => !/^(hi|sdh|chi|cc|forced)$/.test(t)).join('.')}`;
+  const fams = new Set();
+  const fresh = found.filter((c) => !fams.has(family(c)) && fams.add(family(c)));
+  const list = [...fresh, ...found.filter((c) => !fresh.includes(c))];
+  const n = {};
+  const first = list.filter((c) => (n[c.source] = (n[c.source] || 0) + 1) <= perSource).slice(0, max);
+  const rest = list.filter((c) => !first.includes(c)).slice(0, max - first.length);
+  return found.filter((c) => first.includes(c) || rest.includes(c));
+}
+
+// While an episode plays, the next one's file is analysed and its top subtitles synced,
+// so binge watching doesn't wait. Stremio plays the next episode from the same pack/release.
+const prefetched = new Map();
+const PREFETCH_TOP = 3;
+const baseName = (n) => String(n || '').split('/').pop().toLowerCase();
+
+function withPrefetched(target, video) {
+  const p = prefetched.get(targetKey(target));
+  if (!p?.video.videoSize) return video;
+  const same = video.videoSize ? Number(video.videoSize) === p.video.videoSize
+    : video.videoHash ? video.videoHash === p.video.videoHash : !video.filename || baseName(video.filename) === baseName(p.video.filename);
+  if (!same) return video;
+  return { ...p.video, ...Object.fromEntries(Object.entries(video).filter(([, v]) => v)) };
+}
+
+async function prefetchNext(target, video) {
+  if (target.season == null || (!video.videoSize && !video.filename) || !torbox.enabled()) return;
+  const eps = await episodeList(target.imdb);
+  const i = eps.findIndex(([s, e]) => s === target.season && e === target.episode);
+  if (i < 0 || i + 1 >= eps.length) return;
+  const next = { ...target, season: eps[i + 1][0], episode: eps[i + 1][1] };
+  const k = targetKey(next);
+  // Switching to another release of the same episode prefetches that release's next file instead.
+  const from = `${targetKey(target)}|${video.videoSize || baseName(video.filename)}`;
+  if (prefetched.get(k)?.from === from) return;
+  prefetched.set(k, { from, video: {} });
+  if (prefetched.size > 500) prefetched.delete(prefetched.keys().next().value);
+  const hit = await torbox.findFile(video);
+  const ctx = await episodeContext(next.imdb, next.season, next.episode);
+  const file = hit && await torbox.nextFile(hit, (name) => episodeMatches(name, next.season, next.episode, ctx) === true);
+  if (!file) return prefetched.get(k)?.from === from && prefetched.delete(k);
+  const url = await torbox.streamUrl(file);
+  const v = { videoHash: await osHash(url, file.size).catch(() => null), videoSize: file.size, filename: file.name.split('/').pop() };
+  if (prefetched.get(k)?.from !== from) return;
+  prefetched.set(k, { from, video: v });
+  log('prefetch', next.imdb, next.season, next.episode, v.videoSize, v.filename);
+  if (!(await getReference(v, next))) return;
+  const found = await findCandidates(next, v);
+  for (const c of found[0]?.mt ? [] : pickTop(found, PREFETCH_TOP)) await buildSubtitle(encodeToken({ c, t: next, v })).catch(() => null);
 }

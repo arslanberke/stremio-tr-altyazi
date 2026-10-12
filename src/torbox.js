@@ -34,7 +34,7 @@ export async function findFile({ videoSize, filename }) {
       const hits = [];
       for (const it of items) {
         for (const f of it.files || []) {
-          if (videoSize ? Number(f.size) === size : fn && baseName(f.name) === fn) hits.push({ kind, itemId: it.id, fileId: f.id, name: f.name });
+          if (videoSize ? Number(f.size) === size : fn && baseName(f.name) === fn) hits.push({ kind, itemId: it.id, fileId: f.id, name: f.name, size: Number(f.size) });
         }
       }
       if (hits.length) {
@@ -43,6 +43,19 @@ export async function findFile({ videoSize, filename }) {
     }
   }
   return null;
+}
+
+// The file Stremio will most likely play after `hit`: the next episode from the same
+// torrent/pack, or the same release's next file (names equal apart from numbers).
+export async function nextFile(hit, isNext) {
+  const pattern = (n) => baseName(n).replace(/\d+/g, '#');
+  const files = [];
+  for (const it of await list(hit.kind, false).catch(() => [])) {
+    for (const f of it.files || []) {
+      if (/\.(mkv|mp4|avi|m4v|ts|webm)$/i.test(f.name) && isNext(baseName(f.name))) files.push({ kind: hit.kind, itemId: it.id, fileId: f.id, name: f.name, size: Number(f.size) });
+    }
+  }
+  return files.find((f) => f.itemId === hit.itemId) || files.find((f) => pattern(f.name) === pattern(hit.name)) || null;
 }
 
 export async function streamUrl(hit) {

@@ -232,6 +232,8 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
   for (let j = 1; j < D; j++) if (prev[j] > prev[k] || (prev[j] === prev[k] && Math.abs(j - R) < Math.abs(k - R))) k = j;
   const offs = new Array(n);
   for (let i = n - 1; i >= 0; i--) { offs[i] = offset + (k - R) * BIN; if (i) k = back[i * D + k]; }
+  keepEvidence(refSig, cues, offs, ratio);
+  keepOrder(cues, offs, ratio);
   const out = cues.map((c, i) => ({ ...c, start: c.start * ratio + offs[i], end: c.end * ratio + offs[i] }));
   for (let i = 1; i < out.length; i++) {
     if (out[i].start < out[i - 1].start) out[i].start = out[i - 1].start;
@@ -241,6 +243,44 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
   const offsets = [];
   offs.forEach((o, i) => { if (!i || Math.abs(o - offs[i - 1]) > 1e-9) offsets.push([Number(cues[i].start.toFixed(1)), Number(o.toFixed(1))]); });
   return { cues: out, offsets };
+}
+
+// A run that switches offset without landing on reference speech of its own (e.g. song lyrics
+// the reference doesn't subtitle, moved off "silence" or onto speech the previous line already
+// covers) has no evidence for the switch, so it keeps the previous line's offset.
+export function keepEvidence(refSig, cues, offs, ratio = 1, minBins = 10) {
+  const bin = (t) => Math.min(refSig.length, Math.max(0, Math.round(t / BIN)));
+  for (let i = 1; i < cues.length; i++) {
+    if (offs[i] === offs[i - 1]) continue;
+    let j = i;
+    while (j + 1 < cues.length && offs[j + 1] === offs[i]) j++;
+    const from = bin(cues[i - 1].end * ratio + offs[i - 1]);
+    let fresh = 0;
+    for (let m = i; m <= j; m++) {
+      const e = bin(cues[m].end * ratio + offs[m]);
+      for (let k = Math.max(from, bin(cues[m].start * ratio + offs[m])); k < e; k++) if (refSig[k] > 0) fresh++;
+    }
+    if (fresh < minBins) for (let m = i; m <= j; m++) offs[m] = offs[i - 1];
+    i = j;
+  }
+}
+
+// A run of lines can jump back onto earlier speech when the reference has no line for it
+// (e.g. a flashback the file's own subtitle skips). If the run fits in the gap between its
+// neighbours with a neighbour's offset, use that instead of squashing it onto earlier lines.
+export function keepOrder(cues, offs, ratio = 1) {
+  const at = (i, o, key = 'start') => cues[i][key] * ratio + o;
+  for (let i = 1; i < cues.length; i++) {
+    if (at(i, offs[i]) >= at(i - 1, offs[i - 1])) continue;
+    let j = i;
+    while (j + 1 < cues.length && offs[j + 1] === offs[i]) j++;
+    // Only an excursion: the lines around the run agree on one offset (a real cut doesn't return).
+    if (j + 1 < cues.length && Math.abs(offs[j + 1] - offs[i - 1]) <= 0.5) {
+      const o = offs[i - 1];
+      if (at(i, o) >= at(i - 1, o, 'end') - 0.2 && at(j, o, 'end') <= at(j + 1, offs[j + 1]) + 0.2) for (let m = i; m <= j; m++) offs[m] = o;
+    }
+    i = j;
+  }
 }
 
 // Lines whose start is not near any reference line start, grouped into runs; a run of
