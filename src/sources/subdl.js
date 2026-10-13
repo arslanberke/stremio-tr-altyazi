@@ -4,6 +4,9 @@ import { cached } from '../cache.js';
 
 export const enabled = () => Boolean(config.subdlKey);
 
+// When SubDL rate-limits or hangs, lists stop waiting on it for a while.
+let pausedUntil = 0;
+
 export async function search({ imdb, season, episode }) {
   if (!enabled()) return [];
   const p = new URLSearchParams({ api_key: config.subdlKey, imdb_id: imdb, languages: 'TR', subs_per_page: '30' });
@@ -13,7 +16,15 @@ export async function search({ imdb, season, episode }) {
     p.set('episode_number', String(episode));
   } else p.set('type', 'movie');
   const key = `${imdb}:${season}:${episode}`;
-  const d = await cached('subdl-search', key, 6 * 3600, () => fetchJson(`https://api.subdl.com/api/v1/subtitles?${p}`));
+  const d = await cached('subdl-search', key, 6 * 3600, async () => {
+    if (Date.now() < pausedUntil) throw new Error('paused after rate limit');
+    try {
+      return await fetchJson(`https://api.subdl.com/api/v1/subtitles?${p}`, {}, 6000);
+    } catch (e) {
+      if (e.status === 429 || e.name === 'TimeoutError') pausedUntil = Date.now() + 20 * 60 * 1000;
+      throw e;
+    }
+  });
   return (d.subtitles || []).flatMap((s) => {
     if (season != null) {
       if (s.season != null && Number(s.season) !== season) return [];

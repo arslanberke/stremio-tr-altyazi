@@ -50,8 +50,9 @@ function completeVideo(target, video) {
   return withPrefetched(target, m && Date.now() - m.at < 3 * 3600 * 1000 ? m.video : video);
 }
 
+// Stremio asks twice per episode, with and without the hash; both must share one analysis.
 function videoKey(v) {
-  return v.videoHash || `${v.videoSize}:${v.filename}`;
+  return v.videoSize ? `size:${v.videoSize}` : v.videoHash || `name:${baseName(v.filename)}`;
 }
 
 const episodeList = async (imdb) => (await cached('cinemeta', imdb, 7 * 86400, async () => {
@@ -80,7 +81,7 @@ export async function episodeContext(imdb, season, episode) {
   }
 }
 
-export async function findCandidates(target, video) {
+export async function findCandidates(target, video, mt = false) {
   const q = { imdb: target.imdb, season: target.season, episode: target.episode };
   const ctx = await episodeContext(target.imdb, target.season, target.episode);
   const alt = [];
@@ -105,7 +106,7 @@ export async function findCandidates(target, video) {
   const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true || covers(c.release) : true)
     && ((c.loose && covers(c.release)) || (m(c.release) !== false && m(c.fileName) !== false))));
   let all = sameEpisode(results.flat().filter((c) => c.lang === 'tr'));
-  if (!all.length) {
+  if (!all.length || mt) {
     const en = await Promise.all([
       os.search({ ...q, videoHash: video.videoHash, languages: 'en' }).catch(osErr),
       ...alt.map((e) => os.search({ ...q, languages: 'en', osSeason: 1, osEpisode: e }).catch(osErr)),
@@ -235,14 +236,16 @@ export async function serveSubtitle(token) {
   return out;
 }
 
-export async function listSubtitles(type, id, extraStr, baseUrl) {
+export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   const target = parseStremioId(type, id);
   if (!target || target.kind !== 'imdb') return [];
   const extra = parseExtra(extraStr);
   const raw = { videoHash: extra.videoHash || null, videoSize: extra.videoSize || null, filename: extra.filename || null };
   rememberVideo(target, raw);
   const video = withPrefetched(target, raw);
-  const found = await findCandidates(target, video);
+  // The file is analysed while the sites are searched.
+  if (video.videoSize || video.filename) getReference(video, target).catch(() => null);
+  const found = await findCandidates(target, video, mt);
   // More are checked than shown; the best-fitting ones are listed.
   const cands = found[0]?.mt ? found.slice(0, 2) : pickTop(found, 12);
   log('list', id, video.filename, `${cands.length} candidates`);
@@ -267,6 +270,8 @@ export async function listSubtitles(type, id, extraStr, baseUrl) {
     .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
     .slice(0, 8);
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
+  // Only packs without this episode (or wrong ones) were found: fall back to translated English.
+  if (!kept.length && !mt && !found[0]?.mt) return listSubtitles(type, id, extraStr, baseUrl, true);
   const host = config.publicUrl || baseUrl;
   const mark = (o) => {
     if (!o) return '⏳ Seçilince senkronlanır';
