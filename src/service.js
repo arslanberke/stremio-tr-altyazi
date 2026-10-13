@@ -4,7 +4,7 @@ import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
 import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
-import { syncCues, driftReport } from './sync/align.js';
+import { syncCues, driftReport, coverage } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
@@ -207,7 +207,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v9:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v9:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -223,6 +223,11 @@ export async function buildSubtitle(token) {
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };
   }, (o) => o.status === 'synced' || Boolean(o.ref));
+  if (o.status === 'synced' && o.cover === undefined && o.ref !== 'audio') {
+    const ref = await getReference(video, target);
+    o.cover = ref ? coverage(ref, parseSubtitle(o.srt)) : null;
+  }
+  return o;
 }
 
 // Aligned against a text/image track of the file itself and still no fit: wrong episode/show.
@@ -275,7 +280,9 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   const wait = ahead ? results.filter((_, i) => ahead.has(`${items[i].c.source}:${items[i].c.ref}`)) : results;
   await Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, 15000))]);
   // TV shows no labels: the best subtitle must come first (synced, then best-fitting unsynced).
-  const rank = (o) => (!o ? 1 : o.status === 'synced' ? 0 : o.status === 'unsynced' ? 2 : 3);
+  // A synced subtitle whose lines leave much of the dialogue without text (lines shown too briefly) goes below the others.
+  const best = Math.max(0, ...done.map((o) => (o?.status === 'synced' && o.cover) || 0));
+  const rank = (o) => (!o ? 1 : o.status === 'synced' ? (o.cover != null && o.cover < best - 0.15 ? 0.5 : 0) : o.status === 'unsynced' ? 2 : 3);
   const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
     .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
     .slice(0, 8);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues, keepOrder, keepEvidence, BIN } from '../src/sync/align.js';
+import { syncCues, keepOrder, keepEvidence, coverage, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -110,4 +110,13 @@ test('a jump onto new reference speech is kept', () => {
   const offs = [-10, -10, 20, 20];
   keepEvidence(refSig, cues, offs);
   assert.deepEqual(offs, [-10, -10, 20, 20]);
+});
+
+test('coverage: lines shown too briefly leave dialogue uncovered', () => {
+  const ref = { windows: [[0, 100]], speech: [[10, 13], [20, 23], [30, 33]] };
+  const full = [{ start: 10, end: 13 }, { start: 20, end: 23 }, { start: 30, end: 33 }];
+  const brief = [{ start: 11.5, end: 12.7 }, { start: 21.5, end: 22.7 }, { start: 31.5, end: 32.7 }];
+  assert.equal(coverage(ref, full), 1);
+  assert.ok(Math.abs(coverage(ref, brief) - 0.4) < 1e-9);
+  assert.equal(coverage({ windows: [[200, 300]], speech: [[10, 13]] }, full), null);
 });

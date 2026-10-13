@@ -320,6 +320,24 @@ function onsetSync(ref, cues, opts = {}) {
   return { g, cues: out, offsets };
 }
 
+// Share of the reference's spoken time that has a subtitle line on screen.
+export function coverage(ref, cues) {
+  const known = (t) => ref.windows.some(([a, b]) => t >= a && t <= b);
+  const speech = ref.speech.filter(([s]) => known(s));
+  const total = speech.reduce((n, [s, e]) => n + e - s, 0);
+  if (!total) return null;
+  const lines = [...cues].sort((a, b) => a.start - b.start);
+  let hit = 0;
+  for (const [s, e] of speech) {
+    for (const c of lines) {
+      if (c.start >= e) break;
+      hit += Math.max(0, Math.min(e, c.end) - Math.max(s, c.start));
+    }
+  }
+  return Math.min(1, hit / total);
+}
+
+
 export function syncCues(ref, cues, opts = {}) {
   if (!cues.length || !ref.speech.length) return { cues, confident: false };
   const g = globalAlign(ref, cues, opts);
