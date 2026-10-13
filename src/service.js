@@ -96,7 +96,7 @@ export async function findCandidates(target, video, mt = false) {
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
     local.search(q).catch((e) => (log('local search', e.message), [])),
     subsource.search(q).catch((e) => (log('subsource search', e.message), [])),
-    altyazidb.search(q).catch((e) => (log('altyazidb search', e.message), [])),
+    altyazidb.search({ ...q, ...ctx }).catch((e) => (log('altyazidb search', e.message), [])),
     ...alt.map((e) => os.search({ ...q, languages: 'tr', osSeason: 1, osEpisode: e }).catch(osErr)),
   ]);
   const m = (n) => episodeMatches(n, target.season, target.episode, ctx);
@@ -192,9 +192,16 @@ async function loadCandidate(c, target) {
   const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');
   const cues = parseSubtitle(decodeText(f.data), { fps: c.fps });
-  if (!c.mt) return cues;
+  const span = episodeSpan(f.name);
+  if (!c.mt) return Object.assign(cues, { span });
   const tr = await translateLines(cues.map((x) => x.text.replace(/\s*\n\s*/g, ' ')));
-  return cues.map((x, i) => ({ ...x, text: wrap(tr[i] || x.text) }));
+  return Object.assign(cues.map((x, i) => ({ ...x, text: wrap(tr[i] || x.text) })), { span });
+}
+
+// "Naruto26-27.srt": one file holding several episodes back to back.
+function episodeSpan(name) {
+  const m = String(name || '').replace(/\[[^\]]*\]/g, ' ').match(/(?<!\d)(\d{1,4})\s*[-–]\s*(\d{1,4})(?!\d)/);
+  return m && Number(m[2]) > Number(m[1]) && Number(m[2]) - Number(m[1]) < 5 ? [Number(m[1]), Number(m[2])] : null;
 }
 
 export async function buildSubtitle(token) {
@@ -208,7 +215,10 @@ export async function buildSubtitle(token) {
       log('no reference, serving as-is', c.release);
       return { srt: toSrt(extendForReading(flattenOverlaps(cues))), status: 'unsynced' };
     }
-    const r = syncCues(ref, cues);
+    // A multi-episode file is searched across its whole length and cut down to this video.
+    const multi = cues.span && ref.duration && cues.at(-1).end > ref.duration * 1.5;
+    const r = syncCues(ref, cues, multi ? { maxShift: cues.at(-1).end } : {});
+    if (multi && r.confident) r.cues = r.cues.filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
     const check = driftReport(ref, r.cues);
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };
