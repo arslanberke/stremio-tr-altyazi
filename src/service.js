@@ -15,6 +15,7 @@ import * as torbox from './torbox.js';
 import { translateLines } from './translate.js';
 import { osHash } from './videohash.js';
 
+const LIST_BUDGET_MS = 12000;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 export function encodeToken(obj) {
@@ -236,7 +237,7 @@ export async function serveSubtitle(token) {
   return out;
 }
 
-export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
+export async function listSubtitles(type, id, extraStr, baseUrl, mt = false, started = Date.now()) {
   const target = parseStremioId(type, id);
   if (!target || target.kind !== 'imdb') return [];
   const extra = parseExtra(extraStr);
@@ -263,7 +264,8 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   // A prefetched episode only waits for the subtitles that were prepared ahead; the rest keep syncing.
   const ahead = video !== raw && new Set(pickTop(found, PREFETCH_TOP).map((c) => `${c.source}:${c.ref}`));
   const wait = ahead ? results.filter((_, i) => ahead.has(`${items[i].c.source}:${items[i].c.ref}`)) : results;
-  await Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, 15000))]);
+  // Stremio gives up on a slow answer, so the whole list (including a translated fallback) shares one budget.
+  await Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, Math.max(1000, started + LIST_BUDGET_MS - Date.now())))]);
   // TV shows no labels: the best subtitle must come first (synced, then best-fitting unsynced).
   const rank = (o) => (!o ? 1 : o.status === 'synced' ? 0 : o.status === 'unsynced' ? 2 : 3);
   const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
@@ -271,7 +273,7 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
     .slice(0, 8);
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
   // Only packs without this episode (or wrong ones) were found: fall back to translated English.
-  if (!kept.length && !mt && !found[0]?.mt) return listSubtitles(type, id, extraStr, baseUrl, true);
+  if (!kept.length && !mt && !found[0]?.mt) return listSubtitles(type, id, extraStr, baseUrl, true, started);
   const host = config.publicUrl || baseUrl;
   const mark = (o) => {
     if (!o) return '⏳ Seçilince senkronlanır';
