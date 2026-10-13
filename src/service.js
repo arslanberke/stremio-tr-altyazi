@@ -122,7 +122,7 @@ export async function findCandidates(target, video, mt = false) {
 
 async function getReference(video, target) {
   const key = videoKey(video);
-  return cached('ref', `v2:${key}`, 30 * 86400, async () => {
+  return cached('ref', `v3:${key}`, 30 * 86400, async () => {
     if (torbox.enabled() && (video.videoSize || video.filename)) {
       try {
         const hit = await torbox.findFile(video);
@@ -200,7 +200,7 @@ async function loadCandidate(c, target) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  return cached('out', `v8:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  return cached('out', `v9:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);

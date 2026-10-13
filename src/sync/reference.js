@@ -9,22 +9,22 @@ function run(cmd, args, { timeoutMs = 30000, onData, maxBytes = Infinity } = {})
     const chunks = [];
     let size = 0;
     let done = false;
-    const finish = () => {
+    const finish = (timedOut = false) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       p.kill('SIGKILL');
-      resolve(Buffer.concat(chunks));
+      resolve(Object.assign(Buffer.concat(chunks), { timedOut }));
     };
-    const timer = setTimeout(finish, timeoutMs);
+    const timer = setTimeout(() => finish(true), timeoutMs);
     p.stdout.on('data', (d) => {
       chunks.push(d);
       size += d.length;
       if (size >= maxBytes || (onData && onData(Buffer.concat(chunks)) === 'stop')) finish();
     });
     p.stderr.on('data', () => {});
-    p.on('close', finish);
-    p.on('error', finish);
+    p.on('close', () => finish());
+    p.on('error', () => finish());
   });
 }
 
@@ -111,8 +111,15 @@ async function subWindow(url, index, [ws, we]) {
       return cues.length && cues[cues.length - 1].start > we ? 'stop' : null;
     },
   });
-  const cues = parseSubtitle(buf.toString('utf8')).filter((c) => c.start >= ws && c.start <= we);
-  return cues.length ? { window: [Math.max(ws, cues[0].start - 1), we], cues } : null;
+  return subtitleWindow(parseSubtitle(buf.toString('utf8')), ws, we, buf.timedOut);
+}
+
+// A read cut off by the timeout only covers up to its last line; the rest of the window is unknown, not silent.
+export function subtitleWindow(all, ws, we, timedOut = false) {
+  const cues = all.filter((c) => c.start >= ws && c.start <= we);
+  if (!cues.length) return null;
+  const end = timedOut ? Math.min(we, cues[cues.length - 1].end + 1) : we;
+  return { window: [Math.max(ws, cues[0].start - 1), end], cues };
 }
 
 export function vad(samples, rate, offset) {
