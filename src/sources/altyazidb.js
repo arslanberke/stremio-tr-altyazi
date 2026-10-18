@@ -27,6 +27,24 @@ const span = (e) => {
   return m ? [Number(m[1]), Number(m[2])] : null;
 };
 
+// Package season labels follow the site's own split (e.g. Naruto "S4" = episodes 78-104),
+// so packages are matched by the episode coverage written in translator_note.
+function noteCovers(note, absolute) {
+  const t = String(note || '')
+    .replace(/sezon\s*\d+/gi, ' ')
+    .replace(/\d+\s*-?\s*mb\b/gi, ' ');
+  const ranges = [...t.matchAll(/(?<!\d)(\d{1,4})\s*[-~–]\s*(\d{1,4})(?!\d)/g)]
+    .map((m) => [Number(m[1]), Number(m[2])])
+    .filter(([a, b]) => b > a && b - a < 400);
+  if (ranges.some(([a, b]) => a <= absolute && absolute <= b)) return true;
+  const singles = [...t
+    .replace(/(?<!\d)\d{1,4}\s*[-~–]\s*\d{1,4}(?!\d)/g, ' ')
+    .matchAll(/(?<![\d.])\d{1,4}(?![\d.])/g)]
+    .map((m) => Number(m[0]));
+  if (!ranges.length && !singles.length) return true;
+  return singles.includes(absolute);
+}
+
 const candidate = (s, pack, season, episode) => ({
   source: 'altyazidb',
   ref: `${pack ? 'download' : 'subtitle'}?sub_id=${s.id}`,
@@ -47,7 +65,7 @@ export async function search({ imdb, season, episode, absolute, longRunning }) {
   if (season != null && longRunning && absolute) {
     const d = await allEntries(imdb);
     return (d.data || []).flatMap((s) => {
-      if (s.is_package) return Number(s.season) === season ? [candidate(s, true, season, episode)] : [];
+      if (s.is_package) return noteCovers(s.translator_note, absolute) ? [candidate(s, true, season, episode)] : [];
       if (Number(s.episode) === absolute) return [candidate(s, false, season, episode)];
       const r = span(s.episode);
       return r && r[0] <= absolute && absolute <= r[1] ? [candidate(s, true, season, episode)] : [];
