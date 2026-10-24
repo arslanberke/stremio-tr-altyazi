@@ -234,6 +234,7 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
   for (let i = n - 1; i >= 0; i--) { offs[i] = offset + (k - R) * BIN; if (i) k = back[i * D + k]; }
   keepEvidence(refSig, cues, offs, ratio);
   keepOrder(cues, offs, ratio);
+  keepCut(refSig, cues, offs, ratio);
   const out = cues.map((c, i) => ({ ...c, start: c.start * ratio + offs[i], end: c.end * ratio + offs[i] }));
   for (let i = 1; i < out.length; i++) {
     if (out[i].start < out[i - 1].start) out[i].start = out[i - 1].start;
@@ -279,6 +280,41 @@ export function keepOrder(cues, offs, ratio = 1) {
       const o = offs[i - 1];
       if (at(i, o) >= at(i - 1, o, 'end') - 0.2 && at(j, o, 'end') <= at(j + 1, offs[j + 1]) + 0.2) for (let m = i; m <= j; m++) offs[m] = o;
     }
+    i = j;
+  }
+}
+
+// A cut moves the timeline back for good. Lines just before it can fit the old offset by
+// chance (similar spacing) and then sit on top of the lines after the cut, which get squashed.
+// Those lines take the post-cut offset when the reference supports them there as well.
+export function keepCut(refSig, cues, offs, ratio = 1) {
+  const at = (i, o, key = 'start') => cues[i][key] * ratio + o;
+  const hits = (i, o) => {
+    const s = Math.max(0, Math.floor(at(i, o) / BIN));
+    const e = Math.min(refSig.length, Math.ceil(at(i, o, 'end') / BIN));
+    let n = 0;
+    for (let k = s; k < e; k++) if (refSig[k] > 0) n++;
+    return n;
+  };
+  for (let i = 1; i < cues.length; i++) {
+    if (offs[i] >= offs[i - 1] - 0.5) continue;
+    let j = i;
+    while (j + 1 < cues.length && offs[j + 1] === offs[i]) j++;
+    if (j + 1 < cues.length && Math.abs(offs[j + 1] - offs[i - 1]) <= 0.5) { i = j; continue; }
+    const o = offs[i];
+    let limit = at(i, o);
+    let m = i - 1;
+    // Lines after the cut that start under the line before it would be squashed otherwise.
+    let gain = 0;
+    for (let k = i; k <= j && at(k, o) < at(i - 1, offs[i - 1], 'end'); k++) gain += hits(k, o);
+    for (; m >= 0 && at(m, offs[m], 'end') > limit + 0.2; m--) {
+      const now = hits(m, offs[m]), then = hits(m, o);
+      if (offs[m] <= o + 0.5 || then < 0.5 * now) { m = -2; break; }
+      gain += then - now;
+      limit = at(m, o);
+    }
+    // Only when every colliding line fits after the cut and the earlier lines stay clear of them.
+    if (m > -2 && gain >= 0) for (let k = m + 1; k < i; k++) offs[k] = o;
     i = j;
   }
 }

@@ -207,7 +207,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const o = await cached('out', `v9:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v10:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);

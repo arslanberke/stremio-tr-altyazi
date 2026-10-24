@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues, keepOrder, keepEvidence, coverage, BIN } from '../src/sync/align.js';
+import { syncCues, keepOrder, keepEvidence, keepCut, referenceSignal, coverage, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -119,4 +119,23 @@ test('coverage: lines shown too briefly leave dialogue uncovered', () => {
   assert.equal(coverage(ref, full), 1);
   assert.ok(Math.abs(coverage(ref, brief) - 0.4) < 1e-9);
   assert.equal(coverage({ windows: [[200, 300]], speech: [[10, 13]] }, full), null);
+});
+
+test('lines before a cut that collide with the lines after it take the post-cut offset', () => {
+  const ref = { windows: [[0, 200]], speech: [[100, 102], [118, 120], [136, 138], [154, 156], [172, 174]] };
+  const refSig = referenceSignal(ref, Math.ceil(200 / BIN));
+  // 18 s were cut after line 0; lines 1-2 also fit the old offset by chance (same spacing).
+  const cues = [100, 136, 154, 172, 190].map((t, i) => ({ start: t, end: t + 2, text: `l${i}` }));
+  const offs = [0, 0, 0, -18, -18];
+  keepCut(refSig, cues, offs);
+  assert.deepEqual(offs, [0, -18, -18, -18, -18]);
+});
+
+test('a cut is left alone when the lines before it do not fit the post-cut offset', () => {
+  const ref = { windows: [[0, 200]], speech: [[100, 102], [136, 138], [154, 156], [172, 174]] };
+  const refSig = referenceSignal(ref, Math.ceil(200 / BIN));
+  const cues = [100, 136, 154, 172, 190].map((t, i) => ({ start: t, end: t + 2, text: `l${i}` }));
+  const offs = [0, 0, 0, -18, -18];
+  keepCut(refSig, cues, offs);
+  assert.deepEqual(offs, [0, 0, 0, -18, -18]);
 });
