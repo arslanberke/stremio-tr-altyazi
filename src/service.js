@@ -4,7 +4,7 @@ import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
 import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
-import { syncCues, driftReport, coverage } from './sync/align.js';
+import { syncCues, driftReport, coverage, keepEpisode } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
 import * as os from './sources/opensubtitles.js';
 import * as subdl from './sources/subdl.js';
@@ -207,7 +207,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const o = await cached('out', `v10:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v11:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -218,7 +218,7 @@ export async function buildSubtitle(token) {
     // A multi-episode file is searched across its whole length and cut down to this video.
     const multi = cues.span && ref.duration && cues.at(-1).end > ref.duration * 1.5;
     const r = syncCues(ref, cues, multi ? { maxShift: cues.at(-1).end } : {});
-    if (multi && r.confident) r.cues = r.cues.filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
+    if (multi && r.confident) r.cues = keepEpisode(cues, r.cues, r.offsets, ref.duration).filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
     const check = driftReport(ref, r.cues);
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };

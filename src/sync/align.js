@@ -246,6 +246,26 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
   return { cues: out, offsets };
 }
 
+// A file holding several episodes back to back: an offset run whose lines mostly fall past the
+// end of this video carries the next episode, which would otherwise sit on this one's ending.
+export function keepEpisode(cues, aligned, offsets, duration) {
+  if (!offsets?.length || !duration) return aligned;
+  const run = (t) => {
+    let k = 0;
+    while (k + 1 < offsets.length && t >= offsets[k + 1][0] - 0.05) k++;
+    return k;
+  };
+  const inside = offsets.map(() => 0);
+  const past = offsets.map(() => 0);
+  const of = cues.map((c, i) => {
+    const k = run(c.start);
+    if (aligned[i].start >= duration) past[k]++;
+    else if (aligned[i].end > 0) inside[k]++;
+    return k;
+  });
+  return aligned.filter((_, i) => past[of[i]] <= inside[of[i]]);
+}
+
 // A run that switches offset without landing on reference speech of its own (e.g. song lyrics
 // the reference doesn't subtitle, moved off "silence" or onto speech the previous line already
 // covers) has no evidence for the switch, so it keeps the previous line's offset.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues, keepOrder, keepEvidence, keepCut, referenceSignal, coverage, BIN } from '../src/sync/align.js';
+import { syncCues, keepOrder, keepEvidence, keepCut, keepEpisode, referenceSignal, coverage, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -138,4 +138,19 @@ test('a cut is left alone when the lines before it do not fit the post-cut offse
   const offs = [0, 0, 0, -18, -18];
   keepCut(refSig, cues, offs);
   assert.deepEqual(offs, [0, 0, 0, -18, -18]);
+});
+
+test('a multi-episode file drops the offset run that belongs to the next episode', () => {
+  const cues = [10, 20, 30, 1400, 1410, 1420, 1430, 1440].map((t) => ({ start: t, end: t + 2, text: String(t) }));
+  const offsets = [[10, -5], [1400, -120]];
+  const aligned = cues.map((c, i) => ({ ...c, start: c.start + (i < 3 ? -5 : -120), end: c.end + (i < 3 ? -5 : -120) }));
+  const kept = keepEpisode(cues, aligned, offsets, 1300);
+  assert.deepEqual(kept.map((c) => c.text), ['10', '20', '30']);
+});
+
+test('the previous episode at the start of a multi-episode file does not drop this one', () => {
+  const cues = [10, 20, 30, 1400, 1410, 1420].map((t) => ({ start: t, end: t + 2, text: String(t) }));
+  const aligned = cues.map((c) => ({ ...c, start: c.start - 1350, end: c.end - 1350 }));
+  const kept = keepEpisode(cues, aligned, [[10, -1350]], 1300);
+  assert.equal(kept.length, 6);
 });
