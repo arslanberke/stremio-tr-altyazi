@@ -59,6 +59,32 @@ app.get('/sub/:token.srt', async (req, res) => {
   }
 });
 
+const anthologyUrl = 'https://raw.githubusercontent.com/falsisdev/anthology/main/manifest.json';
+const turkishScrapers = new Set(['anthology_diziler', 'puhutv', 'ddizi', 'tvdiziler', 'sinewix', 'hdfilmcehennemi']);
+let anthologyCache = { at: 0, body: null };
+
+// Anthology's Nuvio repository trimmed to the Turkish series/film scrapers, so Nuvio doesn't query 42 sites per title.
+app.get('/nuvio/manifest.json', async (req, res) => {
+  try {
+    if (!anthologyCache.body || Date.now() - anthologyCache.at > 10 * 60 * 1000) {
+      const upstream = await (await fetch(anthologyUrl)).json();
+      anthologyCache = {
+        at: Date.now(),
+        body: {
+          ...upstream,
+          name: 'Anthology TR',
+          scrapers: upstream.scrapers
+            .filter((s) => turkishScrapers.has(s.id))
+            .map((s) => ({ ...s, filename: new URL(s.filename, anthologyUrl).toString() })),
+        },
+      };
+    }
+    res.json(anthologyCache.body);
+  } catch {
+    res.status(502).json({ error: 'anthology unavailable' });
+  }
+});
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.listen(config.port, () => console.log(`listening on :${config.port}`));
