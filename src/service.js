@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { cached } from './cache.js';
 import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
-import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading } from './subformat.js';
+import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading, textShingles, sameTranslation } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
 import { syncCues, driftReport, coverage, keepEpisode } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
@@ -230,6 +230,20 @@ export async function buildSubtitle(token) {
   return o;
 }
 
+// The same translation often sits in several packs/sites; only its best-placed copy is listed.
+const shingles = new WeakMap();
+function distinct(list, key = () => '') {
+  const kept = [];
+  return list.filter(({ o, c }) => {
+    if (!o?.srt) return true;
+    if (!shingles.has(o)) shingles.set(o, textShingles(parseSubtitle(o.srt)));
+    const s = shingles.get(o);
+    if (kept.some((k) => k.key === key(c) && sameTranslation(k.s, s))) return false;
+    kept.push({ key: key(c), s });
+    return true;
+  });
+}
+
 // Aligned against a text/image track of the file itself and still no fit: wrong episode/show.
 const isWrong = (o) => Boolean(o && o.status === 'unsynced' && o.ref && o.ref !== 'audio');
 
@@ -283,10 +297,10 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   // A synced subtitle whose lines leave much of the dialogue without text (lines shown too briefly) goes below the others.
   const best = Math.max(0, ...done.map((o) => (o?.status === 'synced' && o.cover) || 0));
   const rank = (o) => (!o ? 1 : o.status === 'synced' ? (o.cover != null && o.cover < best - 0.15 ? 0.5 : 0) : o.status === 'unsynced' ? 2 : 3);
-  const kept = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
+  const kept = distinct(items.map((x) => ({ ...x, o: done[x.i] })).filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
     .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
-    .slice(0, 8);
-  if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching candidates');
+    ).slice(0, 8);
+  if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching or duplicate candidates');
   // Only packs without this episode (or wrong ones) were found: fall back to translated English.
   if (!kept.length && !mt && !found[0]?.mt) return listSubtitles(type, id, extraStr, baseUrl, true);
   const host = config.publicUrl || baseUrl;

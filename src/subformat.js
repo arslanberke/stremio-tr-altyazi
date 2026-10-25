@@ -158,3 +158,21 @@ export function toSrt(cues) {
 export function isSubtitleFile(name) {
   return /\.(srt|ass|ssa|sub|vtt|txt)$/i.test(name);
 }
+
+// Word triples of a subtitle's text; copies of one translation (same file in several packs or
+// sites, re-timed or re-split) share most of them, different translations share few.
+export function textShingles(cues) {
+  const words = cues.map((c) => c.text).join(' ').replace(/<[^>]*>|\{[^}]*\}/g, ' ')
+    .toLocaleLowerCase('tr').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const s = new Set();
+  for (let i = 0; i + 2 < words.length; i++) s.add(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
+  return s;
+}
+
+export function sameTranslation(a, b) {
+  if (!a.size || !b.size) return false;
+  const [x, y] = a.size < b.size ? [a, b] : [b, a];
+  let n = 0;
+  for (const k of x) if (y.has(k)) n++;
+  return n >= 0.5 * x.size;
+}
