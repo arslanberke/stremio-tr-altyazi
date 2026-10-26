@@ -297,7 +297,10 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   // A synced subtitle whose lines leave much of the dialogue without text (lines shown too briefly) goes below the others.
   const best = Math.max(0, ...done.map((o) => (o?.status === 'synced' && o.cover) || 0));
   const rank = (o) => (!o ? 1 : o.status === 'synced' ? (o.cover != null && o.cover < best - 0.15 ? 0.5 : 0) : o.status === 'unsynced' ? 2 : 3);
-  const kept = distinct(items.map((x) => ({ ...x, o: done[x.i] })).filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])))
+  // A subtitle that couldn't be downloaded is served as another one, i.e. a copy of a listed one.
+  const usable = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])));
+  const loaded = usable.filter(({ i }) => done[i]?.status !== 'error');
+  const kept = distinct((loaded.length ? loaded : usable).map((x) => ({ ...x, o: done[x.i] }))
     .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
     ).slice(0, 8);
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching or duplicate candidates');

@@ -59,6 +59,7 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
       season,
       episode,
       loose,
+      ...(loose && { osSeason: Number(osSeason ?? season), osEpisode: Number(osEpisode) }),
     }));
   });
 }
@@ -72,14 +73,19 @@ async function viaStremio(fileId, c) {
     c = { ...c, legacy: found.find((x) => x.ref === String(fileId))?.legacy };
     if (!c.legacy) return null;
   }
-  const id = c.season != null ? `series/${c.imdb}:${c.season}:${c.episode}` : `movie/${c.imdb}`;
-  try {
-    const d = await cached('os-v3', id, 6 * 3600, () => fetchJson(`https://opensubtitles-v3.strem.io/subtitles/${id}.json`));
-    const hit = (d.subtitles || []).find((x) => String(x.id) === c.legacy);
-    return hit ? await fetchBuffer(hit.url) : null;
-  } catch {
-    return null;
+  // Anime found under OpenSubtitles' own (absolute) numbering is listed there under that numbering.
+  const ids = c.season == null ? [`movie/${c.imdb}`]
+    : [...new Set([`series/${c.imdb}:${c.season}:${c.episode}`, c.osEpisode != null && `series/${c.imdb}:${c.osSeason}:${c.osEpisode}`].filter(Boolean))];
+  for (const id of ids) {
+    try {
+      const d = await cached('os-v3', id, 6 * 3600, () => fetchJson(`https://opensubtitles-v3.strem.io/subtitles/${id}.json`));
+      const hit = (d.subtitles || []).find((x) => String(x.id) === c.legacy);
+      if (hit) return await fetchBuffer(hit.url);
+    } catch {
+      // next numbering
+    }
   }
+  return null;
 }
 
 export async function download(fileId, c) {
