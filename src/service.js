@@ -242,12 +242,14 @@ export async function buildSubtitle(token) {
 
 // The same translation often sits in several packs/sites; only its best-placed copy is listed.
 const shingles = new WeakMap();
+// One still syncing is compared by its downloaded file.
 function distinct(list, key = () => '') {
   const kept = [];
-  return list.filter(({ o, c }) => {
-    if (!o?.srt) return true;
-    if (!shingles.has(o)) shingles.set(o, textShingles(parseSubtitle(o.srt)));
-    const s = shingles.get(o);
+  return list.filter(({ o, c, raw }) => {
+    const k = o?.srt ? o : raw;
+    if (!k) return true;
+    if (!shingles.has(k)) shingles.set(k, textShingles(o?.srt ? parseSubtitle(o.srt) : raw));
+    const s = shingles.get(k);
     if (kept.some((k) => k.key === key(c) && sameTranslation(k.s, s))) return false;
     kept.push({ key: key(c), s });
     return true;
@@ -298,11 +300,14 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: /no matching episode/.test(e.message) ? 'absent' : 'error' })));
   const done = new Array(items.length).fill(null);
   results.forEach((p, i) => p.then((o) => { done[i] = o; }));
+  const loads = items.map(({ c }) => loadCandidate(c, target).catch(() => null));
+  const files = new Array(items.length).fill(null);
+  loads.forEach((p, i) => p.then((r) => { files[i] = r; }));
   Promise.all(results).then(() => prefetchNext(target, completeVideo(target, raw))).catch((e) => log('prefetch failed', e.message));
   // A prefetched episode only waits for the subtitles that were prepared ahead; the rest keep syncing.
   const ahead = video !== raw && new Set(pickTop(found, PREFETCH_TOP).map((c) => `${c.source}:${c.ref}`));
   const wait = ahead ? results.filter((_, i) => ahead.has(`${items[i].c.source}:${items[i].c.ref}`)) : results;
-  await Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, 15000))]);
+  await Promise.race([Promise.all([...wait, ...loads]), new Promise((r) => setTimeout(r, 15000))]);
   // TV shows no labels: the best subtitle must come first (synced, then best-fitting unsynced).
   // A synced subtitle whose lines leave much of the dialogue without text (lines shown too briefly) goes below the others.
   const best = Math.max(0, ...done.map((o) => (o?.status === 'synced' && o.cover) || 0));
@@ -310,7 +315,7 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   // A subtitle that couldn't be downloaded is served as another one, i.e. a copy of a listed one.
   const usable = items.filter(({ c }, i) => done[i]?.status !== 'absent' && (c.mt || !isWrong(done[i])));
   const loaded = usable.filter(({ i }) => done[i]?.status !== 'error');
-  const kept = distinct((loaded.length ? loaded : usable).map((x) => ({ ...x, o: done[x.i] }))
+  const kept = distinct((loaded.length ? loaded : usable).map((x) => ({ ...x, o: done[x.i], raw: files[x.i] }))
     .sort((a, b) => rank(done[a.i]) - rank(done[b.i]) || (done[a.i]?.status === 'unsynced' ? (done[b.i]?.fit || 0) - (done[a.i]?.fit || 0) : 0) || a.i - b.i)
     ).slice(0, 8);
   if (kept.length < items.length) log('hidden', items.length - kept.length, 'mismatching or duplicate candidates');
