@@ -1,13 +1,13 @@
 import crypto from 'node:crypto';
 import { cached } from './cache.js';
 
-const URL = 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=tr';
+const URL = 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&tl=tr&sl=';
 const MAX_CHARS = 4000;
 
-async function translateBatch(lines) {
+async function translateBatch(lines, from) {
   const body = new URLSearchParams();
   for (const l of lines) body.append('q', l);
-  const res = await fetch(URL, {
+  const res = await fetch(URL + from, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
     body,
@@ -19,8 +19,8 @@ async function translateBatch(lines) {
   return out.map((x) => (Array.isArray(x) ? x[0] : x));
 }
 
-export async function translateLines(lines) {
-  const key = crypto.createHash('sha1').update(lines.join('\u0000')).digest('hex');
+export async function translateLines(lines, from = 'en') {
+  const key = crypto.createHash('sha1').update((from === 'en' ? '' : from) + lines.join('\u0000')).digest('hex');
   return cached('mt', key, 90 * 86400, async () => {
     const batches = [[]];
     let size = 0;
@@ -33,7 +33,7 @@ export async function translateLines(lines) {
       size += l.length;
     }
     const out = [];
-    for (const b of batches) out.push(...await translateBatch(b));
+    for (const b of batches) out.push(...await translateBatch(b, from));
     return out;
   });
 }

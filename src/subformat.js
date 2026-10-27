@@ -11,6 +11,16 @@ export function decodeText(buf) {
   }
 }
 
+// A Cyrillic line (pasted from e.g. a Bulgarian subtitle) inside a Windows-1251 file read as
+// Windows-1254 turns into "Àêî òîâà å"; returns the original Cyrillic, or null.
+export function strayCyrillic(text) {
+  const letters = text.match(/\p{L}/gu) || [];
+  const odd = text.match(/[\u00C0-\u00FF]/g)?.filter((ch) => !'çÇöÖüÜâÂîÎûÛ'.includes(ch)) || [];
+  if (odd.length < 5 || odd.length < 0.3 * letters.length) return null;
+  const cyr = iconv.decode(iconv.encode(text, 'windows-1254'), 'windows-1251');
+  return /[\u0400-\u04FF]/.test(cyr) ? cyr : null;
+}
+
 function srtTime(t) {
   const m = t.trim().match(/(\d+):(\d{1,2}):(\d{1,2})[,.](\d{1,3})/);
   if (!m) return NaN;

@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { cached } from './cache.js';
 import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches, releaseScore } from './episode.js';
-import { decodeText, parseSubtitle, toSrt, flattenOverlaps, extendForReading, textShingles, sameTranslation } from './subformat.js';
+import { decodeText, strayCyrillic, parseSubtitle, toSrt, flattenOverlaps, extendForReading, textShingles, sameTranslation } from './subformat.js';
 import { unpack, pickFile } from './archive.js';
 import { syncCues, driftReport, coverage, keepEpisode } from './sync/align.js';
 import { referenceFromVideo, referenceFromSubtitle } from './sync/reference.js';
@@ -193,9 +193,19 @@ async function loadCandidate(c, target) {
   if (!f) throw new Error('no matching episode file in archive');
   const cues = parseSubtitle(decodeText(f.data), { fps: c.fps });
   const span = episodeSpan(f.name);
-  if (!c.mt) return Object.assign(cues, { span });
+  if (!c.mt) return Object.assign(await fixStrayLines(cues), { span });
   const tr = await translateLines(cues.map((x) => x.text.replace(/\s*\n\s*/g, ' ')));
   return Object.assign(cues.map((x, i) => ({ ...x, text: wrap(tr[i] || x.text) })), { span });
+}
+
+// Translators sometimes leave a line of the subtitle they worked from; translate it, or drop it.
+async function fixStrayLines(cues) {
+  const bad = cues.map((x, i) => [i, strayCyrillic(x.text)]).filter(([, t]) => t);
+  if (!bad.length) return cues;
+  const tr = await translateLines(bad.map(([, t]) => t.replace(/\s*\n\s*/g, ' ')), 'auto').catch(() => []);
+  const fixed = new Map(bad.map(([i], n) => [i, tr[n] && !strayCyrillic(tr[n]) ? wrap(tr[n]) : null]));
+  log('stray lines', bad.length, 'translated', [...fixed.values()].filter(Boolean).length);
+  return cues.flatMap((x, i) => (!fixed.has(i) ? [x] : fixed.get(i) ? [{ ...x, text: fixed.get(i) }] : []));
 }
 
 // "Naruto26-27.srt": one file holding several episodes back to back.
@@ -207,7 +217,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const o = await cached('out', `v11:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v12:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);

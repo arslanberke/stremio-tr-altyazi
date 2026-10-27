@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flattenOverlaps, extendForReading, parseSubtitle } from '../src/subformat.js';
+import { flattenOverlaps, extendForReading, parseSubtitle, strayCyrillic } from '../src/subformat.js';
 
 test('turns a long sign over dialogue into non-overlapping cues', () => {
   const out = flattenOverlaps([
@@ -34,4 +34,11 @@ test('srt cue missing its blank line is not swallowed by the previous cue', () =
   assert.equal(cues.length, 3);
   assert.equal(cues[0].text, '...öleceğiz!\n,');
   assert.equal(cues[1].text, 'Şu sol elimdeki yara\nüstüne yemin ediyorum!');
+});
+
+test('strayCyrillic recovers a Windows-1251 line read as Windows-1254', () => {
+  assert.equal(strayCyrillic('Àêî òîâà å âúçìîæíî, çíà÷è\nèìà ïğè÷èíà äà òå îñòàâÿ æèâ.'),
+    'Ако това е възможно, значи\nима причина да те оставя жив.');
+  assert.equal(strayCyrillic('Eğer sen onu aktif hale getirebilirsen, bende dahil olmak üzere,'), null);
+  assert.equal(strayCyrillic('Çöküş, güçlü ışığı söndürdü; üşüdük.'), null);
 });
