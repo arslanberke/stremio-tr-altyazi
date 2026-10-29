@@ -170,7 +170,10 @@ export async function referenceFromVideo(url) {
   const fps = vStream?.avg_frame_rate ? eval(vStream.avg_frame_rate.replace(/[^\d/.]/g, '') || '0') : null; // eslint-disable-line no-eval
   const sub = pickSubtitleStream(info.streams);
   if (sub) {
-    const res = (await pool(planWindows(duration, 8, 150), 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
+    // Each window streams every track of its stretch; high-bitrate files get shorter, more windows.
+    const rate = Number(info.format?.bit_rate) || 0;
+    const len = rate > 8e6 ? Math.max(30, Math.round((150 * 8e6) / rate)) : 150;
+    const res = (await pool(planWindows(duration, len < 150 ? 12 : 8, len), 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
     const cues = res.flatMap((r) => r.cues);
     if (cues.length >= 20) {
       return { kind: 'embedded', lang: lang(sub), duration, fps, windows: res.map((r) => r.window), speech: cues.map((c) => [c.start, c.end]) };
