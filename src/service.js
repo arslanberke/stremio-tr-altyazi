@@ -28,7 +28,8 @@ export function decodeToken(t) {
 export function parseExtra(extra) {
   const out = {};
   if (!extra) return out;
-  for (const [k, v] of new URLSearchParams(extra)) out[k] = v;
+  // Express has already percent-decoded the path, so a '+' here is a literal one ("HDR10+").
+  for (const [k, v] of new URLSearchParams(extra.replace(/\+/g, '%2B'))) out[k] = v;
   return out;
 }
 

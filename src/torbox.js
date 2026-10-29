@@ -19,7 +19,7 @@ async function list(kind, fresh) {
 }
 
 function baseName(n) {
-  return String(n || '').split('/').pop().toLowerCase();
+  return String(n || '').split('/').pop().toLowerCase().replace(/[^\p{L}\p{N}.]+/gu, ' ').trim();
 }
 
 // Find the file the user is playing, by exact size (and name when available).

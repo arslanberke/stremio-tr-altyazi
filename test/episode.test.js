@@ -48,3 +48,9 @@ test('rejects an episode number glued to the title', () => {
   assert.equal(episodeMatches('Naruto45', 1, 5, { absolute: 5, longRunning: true }), false);
   assert.equal(episodeMatches('Naruto05', 1, 5, { absolute: 5, longRunning: true }), true);
 });
+
+test('parseExtra keeps a literal + in the filename', async () => {
+  const { parseExtra } = await import('../src/service.js');
+  assert.equal(parseExtra('filename=Spider-Man.2026.2160p.iT.WEB-DL.DV.HDR10+[Ben The Men].mp4&videoSize=1').filename,
+    'Spider-Man.2026.2160p.iT.WEB-DL.DV.HDR10+[Ben The Men].mp4');
+});
