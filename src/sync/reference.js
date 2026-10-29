@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { parseSubtitle } from '../subformat.js';
+import { mp4TextCues } from './mp4index.js';
 
 const TEXT_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text']);
 
@@ -169,6 +170,12 @@ export async function referenceFromVideo(url) {
   const vStream = info.streams.find((s) => s.codec_type === 'video');
   const fps = vStream?.avg_frame_rate ? eval(vStream.avg_frame_rate.replace(/[^\d/.]/g, '') || '0') : null; // eslint-disable-line no-eval
   const sub = pickSubtitleStream(info.streams);
+  if (sub?.codec_name === 'mov_text' && /mp4|mov/.test(info.format?.format_name || '')) {
+    const cues = await mp4TextCues(url, Number(info.format.size) || Infinity, sub.index).catch(() => null);
+    if (cues?.length >= 20) {
+      return { kind: 'embedded', lang: lang(sub), duration, fps, windows: [[0, Math.max(duration, cues.at(-1).end + 5)]], speech: cues.map((c) => [c.start, c.end]) };
+    }
+  }
   if (sub) {
     // Each window streams every track of its stretch; high-bitrate files get shorter, more windows.
     const rate = Number(info.format?.bit_rate) || 0;
