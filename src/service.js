@@ -215,6 +215,15 @@ function episodeSpan(name) {
   return m && Number(m[2]) > Number(m[1]) && Number(m[2]) - Number(m[1]) < 5 ? [Number(m[1]), Number(m[2])] : null;
 }
 
+// Aligning is CPU-bound; one at a time with a turn of the event loop between, so requests
+// (and the host's health check) are still answered while a dozen candidates sync.
+let syncTurn = Promise.resolve();
+function oneAtATime(fn) {
+  const p = syncTurn.then(() => new Promise((r) => setImmediate(r))).then(fn);
+  syncTurn = p.catch(() => {});
+  return p;
+}
+
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
@@ -228,9 +237,9 @@ export async function buildSubtitle(token) {
     }
     // A multi-episode file is searched across its whole length and cut down to this video.
     const multi = cues.span && ref.duration && cues.at(-1).end > ref.duration * 1.5;
-    const r = syncCues(ref, cues, multi ? { maxShift: cues.at(-1).end } : {});
+    const r = await oneAtATime(() => syncCues(ref, cues, multi ? { maxShift: cues.at(-1).end } : {}));
     if (multi && r.confident) r.cues = keepEpisode(cues, r.cues, r.offsets, ref.duration).filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
-    const check = driftReport(ref, r.cues);
+    const check = await oneAtATime(() => driftReport(ref, r.cues));
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };
   }, (o) => o.status === 'synced' || Boolean(o.ref));
