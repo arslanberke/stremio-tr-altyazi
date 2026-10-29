@@ -173,8 +173,11 @@ export async function referenceFromVideo(url) {
     // Each window streams every track of its stretch; high-bitrate files get shorter, more windows.
     const rate = Number(info.format?.bit_rate) || 0;
     const len = rate > 8e6 ? Math.max(30, Math.round((150 * 8e6) / rate)) : 150;
-    const res = (await pool(planWindows(duration, len < 150 ? 12 : 8, len), 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
+    const heavy = len < 150;
+    const t0 = Date.now();
+    const res = (await pool(planWindows(duration, heavy ? 12 : 8, len), heavy ? 2 : 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
     const cues = res.flatMap((r) => r.cues);
+    console.log(new Date().toISOString(), 'embedded windows', res.length, 'cues', cues.length, 'len', len, `${Math.round((Date.now() - t0) / 1000)}s`);
     if (cues.length >= 20) {
       return { kind: 'embedded', lang: lang(sub), duration, fps, windows: res.map((r) => r.window), speech: cues.map((c) => [c.start, c.end]) };
     }
