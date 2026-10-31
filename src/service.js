@@ -128,8 +128,8 @@ async function getReference(video, target) {
       try {
         const hit = await torbox.findFile(video);
         if (hit) {
-          const url = await torbox.streamUrl(hit);
-          const ref = await referenceFromVideo(url);
+          // Two names for one file (e.g. a renamed copy) are read once.
+          const ref = await cached('ref-file', `v1:${hit.size}:${hit.name}`, 30 * 86400, async () => referenceFromVideo(await torbox.streamUrl(hit)), Boolean);
           if (ref) {
             log('ref', ref.kind, 'from torbox', hit.name);
             return ref;

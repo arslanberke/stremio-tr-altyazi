@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { setPriority } from 'node:os';
 import { parseSubtitle } from '../subformat.js';
 import { mp4TextCues } from './mp4index.js';
 
@@ -7,6 +8,8 @@ const TEXT_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt'
 function run(cmd, args, { timeoutMs = 30000, onData, maxBytes = Infinity } = {}) {
   return new Promise((resolve) => {
     const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // ffmpeg yields the (small) CPU to the server, so requests and health checks still get answered.
+    try { setPriority(p.pid, 19); } catch { /* exited already */ }
     const chunks = [];
     let size = 0;
     let done = false;
