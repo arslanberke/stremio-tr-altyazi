@@ -62,6 +62,21 @@ const episodeList = async (imdb) => (await cached('cinemeta', imdb, 7 * 86400, a
   return (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode)]);
 })).filter(([s, e]) => s > 0 && e > 0).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 
+// Cinemeta's name for a special (season 0), which subtitle sites number differently.
+async function specialTitle(target) {
+  if (target.season !== 0 || !target.imdb) return null;
+  try {
+    const names = await cached('cinemeta-names', target.imdb, 86400, async () => {
+      const d = await fetchJson(`https://v3-cinemeta.strem.io/meta/series/${target.imdb}.json`);
+      return (d.meta?.videos || []).filter((v) => Number(v.season) === 0).map((v) => [Number(v.episode), v.name || v.title || '']);
+    });
+    return names.find(([e]) => e === target.episode)?.[1] || null;
+  } catch (e) {
+    log('cinemeta', e.message);
+    return null;
+  }
+}
+
 export async function episodeContext(imdb, season, episode) {
   if (!imdb || season == null) return {};
   try {
@@ -93,8 +108,11 @@ export async function findCandidates(target, video, mt = false) {
     }
   }
   const osErr = (e) => (log('os search', e.message), []);
+  const title = await specialTitle(target);
+  const byTitle = (languages) => (title ? [os.search({ ...q, title, languages }).catch(osErr)] : []);
   const results = await Promise.all([
     os.search({ ...q, videoHash: video.videoHash, languages: 'tr' }).catch(osErr),
+    ...byTitle('tr'),
     subdl.search(q).catch((e) => (log('subdl search', e.message), [])),
     local.search(q).catch((e) => (log('local search', e.message), [])),
     subsource.search(q).catch((e) => (log('subsource search', e.message), [])),
@@ -105,12 +123,13 @@ export async function findCandidates(target, video, mt = false) {
   const nums = [target.episode, ctx.absolute].filter(Boolean);
   const covers = (t = '') => [...t.matchAll(/(?<!\d)(\d{1,3})\s*[-–~]\s*(\d{1,3})(?!\d)/g)]
     .some(([, a, b]) => nums.some((n) => Number(a) <= n && n <= Number(b) && Number(b) - Number(a) < 400));
-  const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => (c.loose ? m(c.release) === true || m(c.fileName) === true || covers(c.release) : true)
+  const sameEpisode = (list) => (target.season == null ? list : list.filter((c) => c.titleMatch || (c.loose ? m(c.release) === true || m(c.fileName) === true || covers(c.release) : true)
     && ((c.loose && covers(c.release)) || (m(c.release) !== false && m(c.fileName) !== false))));
   let all = sameEpisode(results.flat().filter((c) => c.lang === 'tr'));
   if (!all.length || mt) {
     const en = await Promise.all([
       os.search({ ...q, videoHash: video.videoHash, languages: 'en' }).catch(osErr),
+      ...byTitle('en'),
       ...alt.map((e) => os.search({ ...q, languages: 'en', osSeason: 1, osEpisode: e }).catch(osErr)),
     ]);
     all = sameEpisode(en.flat().filter((c) => c.lang === 'en')).map((c) => ({ ...c, mt: true }));
@@ -142,7 +161,9 @@ async function getReference(video, target) {
     }
     if (os.enabled() && video.videoHash) {
       try {
-        const list = await os.search({ imdb: target.imdb, season: target.season, episode: target.episode, videoHash: video.videoHash, languages: 'en,tr' });
+        const title = await specialTitle(target);
+        const q = { imdb: target.imdb, season: target.season, episode: target.episode, videoHash: video.videoHash, languages: 'en,tr' };
+        const list = [...await os.search(q), ...(title ? await os.search({ ...q, title }) : [])];
         const m = list.find((c) => c.hashMatch && c.lang === 'en') || list.find((c) => c.hashMatch);
         if (m) {
           const cues = parseSubtitle(decodeText(await os.download(m.ref, m)), { fps: m.fps });
@@ -191,7 +212,9 @@ async function loadCandidate(c, target) {
   const src = { opensubtitles: os, subdl, subsource, altyazidb, local }[c.source];
   const buf = await src.download(c.ref, { imdb: target.imdb, season: target.season, episode: target.episode, ...c });
   const files = unpack(buf, c.fileName || 'sub.srt');
-  const f = pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
+  // A special found by title carries its own numbering (e.g. S01E00), so the file isn't checked against ours.
+  const f = c.titleMatch ? pickFile(files, null, null)
+    : pickFile(files, target.season, target.episode, await episodeContext(target.imdb, target.season, target.episode));
   if (!f) throw new Error('no matching episode file in archive');
   const cues = parseSubtitle(decodeText(f.data), { fps: c.fps });
   const span = episodeSpan(f.name);

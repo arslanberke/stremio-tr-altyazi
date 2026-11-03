@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEpisode, episodeMatches, parseStremioId } from '../src/episode.js';
+import { parseEpisode, episodeMatches, parseStremioId, titleMatches } from '../src/episode.js';
 import { pickFile } from '../src/archive.js';
 
 test('parses common episode formats', () => {
@@ -53,4 +53,13 @@ test('parseExtra keeps a literal + in the filename', async () => {
   const { parseExtra } = await import('../src/service.js');
   assert.equal(parseExtra('filename=Spider-Man.2026.2160p.iT.WEB-DL.DV.HDR10+[Ben The Men].mp4&videoSize=1').filename,
     'Spider-Man.2026.2160p.iT.WEB-DL.DV.HDR10+[Ben The Men].mp4');
+});
+
+test('titleMatches finds a special by its episode title across numberings', () => {
+  assert.equal(titleMatches('A Story of Derry | "It: Welcome to Derry" A Story of Derry', 'A Story of Derry'), true);
+  assert.equal(titleMatches('It.Welcome.to.Derry.S01E00.A.Story.of.Derry.1080p.WEB', 'A Story of Derry'), true);
+  assert.equal(titleMatches('Welcome to Derry- Day 1', 'Welcome to Derry- Day 1'), true);
+  assert.equal(titleMatches('Inside Derry #10', 'Inside Derry #1'), false);
+  assert.equal(titleMatches('The Pilot', 'Pilot'), true);
+  assert.equal(titleMatches('anything', 'Ep'), false);
 });
