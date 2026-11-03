@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { fetchJson, fetchBuffer } from '../http.js';
 import { cached } from '../cache.js';
+import { titleMatches } from '../episode.js';
 
 const BASE = 'https://api.opensubtitles.com/api/v1';
 let token = null;
@@ -27,11 +28,16 @@ export const enabled = () => Boolean(config.osKey);
 
 // languages: comma list like "tr" or "en"; returns normalized candidates
 // osSeason/osEpisode: query another numbering (anime absolute); results are then unverified (loose).
-export async function search({ imdb, season, episode, videoHash, languages = 'tr', osSeason, osEpisode }) {
+// title: a special's episode title; OpenSubtitles files specials as their own episode
+// (often season 0 episode 0), so they are looked up by that title under the series.
+export async function search({ imdb, season, episode, videoHash, languages = 'tr', osSeason, osEpisode, title }) {
   if (!enabled()) return [];
   const num = String(Number(imdb.replace('tt', '')));
   const p = { languages };
-  if (season != null) {
+  if (title) {
+    p.parent_imdb_id = num;
+    p.query = title;
+  } else if (season != null) {
     p.parent_imdb_id = num;
     p.season_number = String(osSeason ?? season);
     p.episode_number = String(osEpisode ?? episode);
@@ -43,7 +49,9 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
     const a = s.attributes;
     const fd = a.feature_details || {};
     const loose = osEpisode != null;
-    if (season != null && !loose && (fd.season_number !== season || fd.episode_number !== episode)) return [];
+    if (title) {
+      if (String(fd.parent_imdb_id ?? num) !== num || !titleMatches(`${fd.title || ''} | ${fd.movie_name || ''}`, title)) return [];
+    } else if (season != null && !loose && (fd.season_number !== season || fd.episode_number !== episode)) return [];
     return (a.files || []).map((f) => ({
       source: 'opensubtitles',
       ref: String(f.file_id),
@@ -59,6 +67,7 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
       season,
       episode,
       loose,
+      ...(title && { titleMatch: true }),
       ...(loose && { osSeason: Number(osSeason ?? season), osEpisode: Number(osEpisode) }),
     }));
   });

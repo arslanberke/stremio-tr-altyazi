@@ -65,6 +65,15 @@ export function episodeMatches(name, season, episode, ctx = {}) {
   return null;
 }
 
+const normTitle = (t) => String(t || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Specials are numbered differently on each site; their episode title is what they share.
+export function titleMatches(candidate, title) {
+  const t = normTitle(title);
+  if (t.length < 4) return false;
+  return ` ${normTitle(candidate)} `.includes(` ${t} `);
+}
+
 export function parseStremioId(type, id) {
   const parts = decodeURIComponent(id).split(':');
   if (parts[0] === 'kitsu') return { kind: 'kitsu', kitsuId: parts[1], episode: Number(parts[2]) || null };
