@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues, keepOrder, keepEvidence, keepCut, keepEpisode, referenceSignal, coverage, BIN } from '../src/sync/align.js';
+import { syncCues, snapLines, keepOrder, keepEvidence, keepCut, keepEpisode, referenceSignal, coverage, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -153,4 +153,54 @@ test('the previous episode at the start of a multi-episode file does not drop th
   const aligned = cues.map((c) => ({ ...c, start: c.start - 1350, end: c.end - 1350 }));
   const kept = keepEpisode(cues, aligned, [[10, -1350]], 1300);
   assert.equal(kept.length, 6);
+});
+
+test('snaps sloppily timed lines onto the reference lines after syncing', () => {
+  const truth = randomCues(300);
+  let s = 7;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const sloppy = truth.map((c) => { const j = (rnd() - 0.5) * 1.6; return { ...c, start: c.start + 5 + j, end: c.end + 5 + j }; });
+  const r = syncCues(asRef(truth), sloppy);
+  assert.equal(r.confident, true);
+  const before = sloppy.filter((c, i) => Math.abs(c.start - 5 - truth[i].start) > 0.3).length;
+  const after = r.cues.filter((c, i) => Math.abs(c.start - truth[i].start) > 0.3).length;
+  assert.ok(before > 100, `jitter present: ${before}`);
+  assert.ok(after < 15, `lines still off after snapping: ${after}`);
+  assert.ok(r.snapped > 250, `snapped ${r.snapped}`);
+  for (let i = 1; i < r.cues.length; i++) assert.ok(r.cues[i].start >= r.cues[i - 1].start && r.cues[i].end > r.cues[i].start);
+});
+
+test('snapLines keeps lines the reference has no line for, and does not touch audio references', () => {
+  const ref = asRef([{ start: 10, end: 12 }, { start: 20, end: 22 }, { start: 30, end: 32 }]);
+  const cues = [{ start: 10.4, end: 12.3, text: 'a' }, { start: 15, end: 17, text: 'lyrics' }, { start: 20.3, end: 21.8, text: 'b' }];
+  const { cues: out, snapped } = snapLines(ref, cues);
+  assert.equal(snapped, 2);
+  assert.deepEqual(out.map((c) => [c.start, c.end]), [[10, 12], [15, 17], [20, 22]]);
+  assert.deepEqual(snapLines({ ...ref, kind: 'audio' }, cues).cues, cues);
+});
+
+test('snapLines leaves a line alone when two reference lines are equally close', () => {
+  const ref = asRef([{ start: 10, end: 10.4 }, { start: 10.8, end: 11.5 }, { start: 20, end: 22 }]);
+  const cues = [{ start: 10.4, end: 11.4, text: 'between' }, { start: 20.5, end: 22, text: 'b' }];
+  const { cues: out } = snapLines(ref, cues);
+  assert.equal(out[0].start, 10.4);
+  assert.equal(out[1].start, 20);
+});
+
+test('snapLines gives a reference line to the nearest cue only and never reorders or overlaps lines', () => {
+  const ref = asRef([{ start: 10, end: 12 }, { start: 20, end: 22 }]);
+  // Two cues near one reference line (a split translation): only the closer one snaps.
+  const split = [{ start: 10.3, end: 11, text: 'a1' }, { start: 11, end: 12.2, text: 'a2' }, { start: 20.2, end: 22, text: 'b' }];
+  const r1 = snapLines(ref, split).cues;
+  assert.equal(r1[0].start, 10);
+  assert.equal(r1[1].start, 11);
+  assert.equal(r1[2].start, 20);
+  // A translation merging two reference lines keeps covering both.
+  const merged = [{ start: 10.5, end: 21.5, text: 'ab' }];
+  assert.deepEqual(snapLines(ref, merged).cues.map((c) => [c.start, c.end]), [[10, 22]]);
+  // A snap that would push a line under its neighbour is skipped.
+  const tight = [{ start: 9.2, end: 10.6, text: 'x' }, { start: 10.7, end: 12, text: 'a' }];
+  const r2 = snapLines(ref, tight).cues;
+  assert.equal(r2[0].start, 9.2);
+  assert.equal(r2[1].start, 10.7);
 });
