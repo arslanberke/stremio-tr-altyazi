@@ -394,15 +394,70 @@ export function coverage(ref, cues) {
 }
 
 
+// A translator's own line timing is often sloppy: lines land a little early or late at random,
+// which no offset can fix. Aligned against the file's own text track, each line is moved onto
+// the reference line it clearly belongs to; lines without one (lyrics, split/merged lines) stay.
+export function snapLines(ref, cues, { tol = 1, ambiguity = 0.3 } = {}) {
+  if (ref.kind === 'audio' || !ref.speech?.length || !cues.length) return { cues, snapped: 0 };
+  const lines = [...ref.speech].sort((a, b) => a[0] - b[0]);
+  const nearest = (key, t) => {
+    let lo = 0;
+    let hi = lines.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (lines[mid][key] < t) lo = mid + 1; else hi = mid;
+    }
+    return lo > 0 && Math.abs(lines[lo - 1][key] - t) < Math.abs(lines[lo][key] - t) ? lo - 1 : lo;
+  };
+  // Each reference line start goes to the one cue that is clearly nearest to it.
+  const claim = new Map();
+  cues.forEach((c, i) => {
+    const j = nearest(0, c.start);
+    const d = Math.abs(lines[j][0] - c.start);
+    if (d > tol) return;
+    const rival = Math.min(...[j - 1, j + 1].filter((k) => lines[k]).map((k) => Math.abs(lines[k][0] - c.start)));
+    if (rival - d < ambiguity) return;
+    const prev = claim.get(j);
+    if (!prev || prev.d > d) claim.set(j, { i, d });
+  });
+  const startOf = new Map([...claim].map(([j, { i }]) => [i, lines[j][0]]));
+  const out = cues.map((c) => ({ ...c }));
+  let snapped = 0;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    const start = startOf.has(i) ? startOf.get(i) : c.start;
+    const j = nearest(1, c.end);
+    const refEnd = lines[j][1];
+    const before = out[i - 1];
+    const after = out[i + 1];
+    let end = Math.abs(refEnd - c.end) <= tol && refEnd >= start + 0.3 && lines[j][0] < c.end ? refEnd : c.end;
+    // A split translation's first half must not grow under its second half.
+    if (after && end > after.start + 0.05 && c.end <= after.start + 0.05) end = c.end;
+    if (start === c.start && end === c.end) continue;
+    // Never reorder lines or push one under its neighbour.
+    if (before && start < before.start) continue;
+    if (before && start < before.end - 0.05 && c.start >= before.end - 0.05) continue;
+    if (end - start < 0.3) continue;
+    c.start = start;
+    c.end = end;
+    snapped++;
+  }
+  return { cues: out, snapped };
+}
+
 export function syncCues(ref, cues, opts = {}) {
   if (!cues.length || !ref.speech.length) return { cues, confident: false };
   const g = globalAlign(ref, cues, opts);
   if (g.z >= 6) {
     const { cues: refined, offsets } = refineLines(g.refSig, cues, g.ratio, g.offset);
-    return { cues: refined, confident: true, method: 'overlap', offsets, ...strip(g) };
+    const s = snapLines(ref, refined);
+    return { cues: s.cues, confident: true, method: 'overlap', offsets, snapped: s.snapped, ...strip(g) };
   }
   const o = onsetSync(ref, cues, opts);
-  if (o.cues) return { cues: o.cues, confident: true, method: 'onset', offsets: o.offsets, ...strip(o.g) };
+  if (o.cues) {
+    const s = snapLines(ref, o.cues);
+    return { cues: s.cues, confident: true, method: 'onset', offsets: o.offsets, snapped: s.snapped, ...strip(o.g) };
+  }
   return { cues, confident: false, ...strip(g.z >= o.g.z ? g : o.g) };
 }
 
