@@ -56,6 +56,7 @@ const candidate = (s, pack, season, episode) => ({
   downloads: s.downloads || 0,
   pack,
   ai: Boolean(s.ai_ceviri),
+  by: s.translator || '',
   season,
   episode,
 });

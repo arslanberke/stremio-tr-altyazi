@@ -32,6 +32,7 @@ export async function search({ imdb, season, episode }) {
       release,
       fileName: release,
       fps: Number(s.framerate) || null,
+      by: [].concat(s.contributors || []).map((c) => c?.displayname || c?.name || c).filter((x) => typeof x === 'string').join(', '),
       hashMatch: false,
       downloads: s.downloads || 0,
       pack,
