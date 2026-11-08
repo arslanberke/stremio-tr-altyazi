@@ -62,7 +62,6 @@ export async function search({ imdb, season, episode, videoHash, languages = 'tr
       hashMatch: Boolean(a.moviehash_match),
       downloads: a.download_count || 0,
       fromTrusted: Boolean(a.from_trusted),
-      by: a.uploader?.name || '',
       legacy: a.legacy_subtitle_id ? String(a.legacy_subtitle_id) : null,
       imdb,
       season,

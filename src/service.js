@@ -357,17 +357,9 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   return kept.map(({ token, c, i }, n) => ({
     id: `trsync-${c.mt ? 'mt-' : ''}${c.source}-${c.ref}`.replace(/[^\w-]/g, '_').slice(0, 80),
     url: `${host}/sub/${token}.srt`,
-    lang: tvName(c, n),
+    lang: '** TR Senkron',
     label: `TR${n + 1} · ${c.mt ? '🤖 Makine çevirisi · ' : ''}${mark(done[i])} · ${{ opensubtitles: 'OpenSubtitles', subdl: 'SubDL', subsource: 'SubSource', altyazidb: 'AltyaziDB', local: 'Arşiv' }[c.source]} · ${c.release}`.slice(0, 140),
   }));
-}
-
-// The Stremio TV app shows only `lang` (as the language and the variant name), so each
-// subtitle gets its own short name: rank, site, translator (or release).
-const SHORT_SOURCE = { opensubtitles: 'OS', subdl: 'SubDL', subsource: 'SubSrc', altyazidb: 'ADB', local: 'Arşiv' };
-export function tvName(c, n) {
-  const who = (c.mt ? 'Makine' : c.by || c.release || '').replace(/\s+/g, ' ').trim().slice(0, 16);
-  return `${n + 1} ${SHORT_SOURCE[c.source] || c.source}${who ? ` · ${who}` : ''}`;
 }
 
 // Up to `max`, at most 4 from one site first so one site's near-duplicates don't crowd out

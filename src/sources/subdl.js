@@ -39,7 +39,6 @@ export async function search({ imdb, season, episode }) {
       release: s.release_name || s.name || '',
       fileName: s.name || '',
       fps: s.fps || null,
-      by: s.author || '',
       hashMatch: false,
       downloads: 0,
       pack: Boolean(s.full_season),
