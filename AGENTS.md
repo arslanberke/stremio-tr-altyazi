@@ -9,8 +9,8 @@ Owner: Berke (arslanberke). Talk to him in **Turkish, very short**. He expects e
 | What | Berke's **private** Turkish subtitle addon | **Commercial** product (SyncIt) |
 | Keys | Server-side env vars (Berke's own accounts) | Per-user keys encrypted into the addon URL (`CONFIG_SECRET`) |
 | Debrid | TorBox only | TorBox, Real-Debrid, AllDebrid, Premiumize (`src/debrid/`) |
-| Hosting | Render, service `srv-db1dg39srm7s73b68iig`, https://tr-altyazi-senkron.onrender.com | Mac + Cloudflare Tunnel → https://app.getsyncit.xyz, landing on Cloudflare Pages https://getsyncit.xyz |
-| Deploy | Render auto-deploy from `main` (if it doesn't fire, trigger via Render API, see below) | **Never deploy unless Berke explicitly asks** |
+| Hosting | Berke's Mac + Cloudflare Tunnel `tralt` → https://tr-v6sp9c.berke.cc (Render `srv-db1dg39srm7s73b68iig` suspended: free hours ran out) | Mac + Cloudflare Tunnel → https://app.getsyncit.xyz, landing on Cloudflare Pages https://getsyncit.xyz |
+| Deploy | Push to `main`; the Mac pulls it within 5 min (`scripts/auto-update.sh`) | **Never deploy unless Berke explicitly asks** |
 
 Rule: when you fix sync/matching logic here, port the same fix to `syncit` (same file layout under `src/`), push it, but don't deploy SyncIt. Private-only tricks (e.g. unofficial Google Translate in `src/translate.js`) must NOT go to SyncIt (paid product, ToS).
 
@@ -29,7 +29,7 @@ Rule: when you fix sync/matching logic here, port the same fix to `syncit` (same
 Other routes: `/manifest.json`, `/health`, `/nuvio/manifest.json` (filtered Anthology plugin repo for the Nuvio app).
 
 ## Env vars (values are in Render, never commit them)
-`TORBOX_API_KEY`, `OPENSUBTITLES_API_KEY` / `_USERNAME` / `_PASSWORD`, `SUBDL_API_KEY`, `SUBSOURCE_API_KEY`, `ALTYAZIDB_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `PUBLIC_URL`, `CACHE_DIR`, `PORT`.
+`TORBOX_API_KEY`, `OPENSUBTITLES_API_KEY` / `_USERNAME` / `_PASSWORD`, `SUBDL_API_KEY`, `SUBSOURCE_API_KEY`, `ALTYAZIDB_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `PUBLIC_URL`, `CACHE_DIR`, `PORT`, `LOG_KEY` + `LOG_FILE` (enable `/logs`).
 
 ## Run / test
 ```
@@ -39,6 +39,11 @@ npm start                # http://localhost:7000/manifest.json (needs ffmpeg)
 ```
 
 ## Deploy + verify (private addon)
+Now on Berke's Mac (`~/tr-altyazi`, port 7001, launchd `cc.tralt.server` / `cc.tralt.tunnel` / `cc.tralt.update`, env in `~/tr-altyazi/.env`):
+- Push to `main` → `cc.tralt.update` pulls and restarts within 5 min. Check `/health`, `/manifest.json`, a real request on https://tr-v6sp9c.berke.cc.
+- Logs without Mac access: `curl "https://tr-v6sp9c.berke.cc/logs?key=$LOG_KEY&n=300&q=tt0409591"`. `LOG_KEY` is stored as an env var on the (suspended) Render service; read it via the Render API, never print it.
+
+Old Render flow (if it moves back):
 - Push/merge to `main` → Render builds the Dockerfile. Auto-deploy didn't fire once; then:
   `curl -X POST -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" -d '{"commitId":"<sha>"}' https://api.render.com/v1/services/srv-db1dg39srm7s73b68iig/deploys`
 - Wait for status `live`, then check `/health`, `/manifest.json` and a real request, e.g.

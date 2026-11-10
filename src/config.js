@@ -11,5 +11,7 @@ export const config = {
   subsourceKey: process.env.SUBSOURCE_API_KEY || '',
   storeUrl: (process.env.SUPABASE_URL || '').replace(/\/$/, ''),
   storeKey: process.env.SUPABASE_ANON_KEY || '',
+  logKey: process.env.LOG_KEY || '',
+  logFile: process.env.LOG_FILE || '',
   userAgent: 'TrAltyaziSync v0.1',
 };

@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
+import { open } from 'node:fs/promises';
 import express from 'express';
 import { config } from './config.js';
 import { listSubtitles, serveSubtitle } from './service.js';
@@ -86,6 +88,22 @@ app.get('/nuvio/manifest.json', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// Server log tail for remote debugging when the addon runs on a home machine; off unless LOG_KEY and LOG_FILE are set.
+const keyOk = (k) => Boolean(config.logKey) && typeof k === 'string' && k.length === config.logKey.length && timingSafeEqual(Buffer.from(k), Buffer.from(config.logKey));
+app.get('/logs', async (req, res) => {
+  if (!config.logFile || !keyOk(req.query.key)) return res.status(404).end();
+  const f = await open(config.logFile).catch(() => null);
+  if (!f) return res.status(404).end();
+  try {
+    const { size } = await f.stat();
+    const len = Math.min(size, 4 * 1024 * 1024);
+    const { buffer } = await f.read(Buffer.alloc(len), 0, len, size - len);
+    let lines = buffer.toString('utf8').split('\n');
+    if (req.query.q) lines = lines.filter((l) => l.includes(String(req.query.q)));
+    res.type('text').send(lines.slice(-Math.min(Number(req.query.n) || 300, 20000)).join('\n'));
+  } finally { await f.close(); }
+});
 
 app.listen(config.port, () => console.log(`listening on :${config.port}`));
 
