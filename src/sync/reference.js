@@ -95,6 +95,8 @@ export function planWindows(duration, count, len, edge = 0.03) {
   if (!duration || duration < len * 2) return [[0, Math.max(duration || 0, len)]];
   const lo = duration * edge;
   const hi = duration * (1 - edge) - len;
+  // Enough windows to cover it all: read it back to back, a gap could hide a cut (e.g. right after the opening).
+  if (count * len >= hi + len - lo) return Array.from({ length: count }, (_, i) => [lo + ((hi + len - lo) * i) / count, lo + ((hi + len - lo) * (i + 1)) / count]);
   const step = (hi - lo) / Math.max(1, count - 1);
   return Array.from({ length: count }, (_, i) => [lo + i * step, lo + i * step + len]);
 }
@@ -187,7 +189,7 @@ export async function referenceFromVideo(url) {
     const len = rate > 8e6 ? Math.max(30, Math.round((150 * 8e6) / rate)) : 150;
     const heavy = len < 150;
     const t0 = Date.now();
-    const res = (await pool(planWindows(duration, heavy ? 12 : 8, len, 0), heavy ? 2 : 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
+    const res = (await pool(planWindows(duration, heavy ? 12 : Math.min(12, Math.ceil(duration / len)), len, 0), heavy ? 2 : 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
     const cues = res.flatMap((r) => r.cues);
     console.log(new Date().toISOString(), 'embedded windows', res.length, 'cues', cues.length, 'len', len, `${Math.round((Date.now() - t0) / 1000)}s`);
     if (cues.length >= 20) {

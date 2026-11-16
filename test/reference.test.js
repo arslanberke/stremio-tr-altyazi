@@ -29,3 +29,10 @@ test('subtitle windows reach the cold open and the ending, audio skips the edges
   const audio = planWindows(1350, 12, 90);
   assert.ok(audio[0][0] > 30);
 });
+
+test('subtitle windows that can cover the whole video leave no gaps', () => {
+  const w = planWindows(1352, Math.min(12, Math.ceil(1352 / 150)), 150, 0);
+  assert.equal(w[0][0], 0);
+  assert.equal(w.at(-1)[1], 1352);
+  for (let i = 1; i < w.length; i++) assert.equal(w[i][0], w[i - 1][1]);
+});
