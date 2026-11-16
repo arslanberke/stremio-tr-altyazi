@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cuesFromImagePackets, pickAudioStream, subtitleWindow } from '../src/sync/reference.js';
+import { cuesFromImagePackets, pickAudioStream, planWindows, subtitleWindow } from '../src/sync/reference.js';
 
 test('reads line timing from image subtitle packets', () => {
   const cues = cuesFromImagePackets([[9.676, 4325], [10.41, 30], [16.917, 13603], [19.553, 30], [20.554, 16111], [22.756, 30]]);
@@ -20,4 +20,12 @@ test('a subtitle read cut off by the timeout only covers up to its last line', (
   assert.deepEqual(subtitleWindow(cues, 40, 190, true).window, [49, 84]);
   assert.deepEqual(subtitleWindow(cues, 40, 190).window, [49, 190]);
   assert.equal(subtitleWindow(cues, 200, 350), null);
+});
+
+test('subtitle windows reach the cold open and the ending, audio skips the edges', () => {
+  const sub = planWindows(1350, 8, 150, 0);
+  assert.equal(sub[0][0], 0);
+  assert.equal(sub.at(-1)[1], 1350);
+  const audio = planWindows(1350, 12, 90);
+  assert.ok(audio[0][0] > 30);
 });

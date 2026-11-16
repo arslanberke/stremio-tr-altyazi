@@ -143,13 +143,13 @@ export async function findCandidates(target, video, mt = false) {
 
 async function getReference(video, target) {
   const key = videoKey(video);
-  return cached('ref', `v3:${key}`, 30 * 86400, async () => {
+  return cached('ref', `v4:${key}`, 30 * 86400, async () => {
     if (torbox.enabled() && (video.videoSize || video.filename)) {
       try {
         const hit = await torbox.findFile(video);
         if (hit) {
           // Two names for one file (e.g. a renamed copy) are read once.
-          const ref = await cached('ref-file', `v1:${hit.size}:${hit.name}`, 30 * 86400, async () => referenceFromVideo(await torbox.streamUrl(hit)), Boolean);
+          const ref = await cached('ref-file', `v2:${hit.size}:${hit.name}`, 30 * 86400, async () => referenceFromVideo(await torbox.streamUrl(hit)), Boolean);
           if (ref) {
             log('ref', ref.kind, 'from torbox', hit.name);
             return ref;
@@ -243,7 +243,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const o = await cached('out', `v13:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v14:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
