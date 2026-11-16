@@ -2,14 +2,15 @@ import { timingSafeEqual } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import express from 'express';
 import { config } from './config.js';
-import { listSubtitles, serveSubtitle } from './service.js';
+import { listSubtitles, serveSubtitle, decodeToken } from './service.js';
+import { libraryStreams, playUrl } from './library.js';
 
 const manifest = {
   id: 'community.tr-altyazi-sync',
-  version: '0.1.0',
+  version: '0.2.0',
   name: 'TR Altyazı Senkron',
   description: 'Türkçe altyazıları OpenSubtitles ve SubDL\'den bulur, izlediğin dosyaya göre senkronlar.',
-  resources: ['subtitles'],
+  resources: ['subtitles', 'stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   catalogs: [],
@@ -43,6 +44,26 @@ app.get(['/subtitles/:type/:id/:extra.json', '/subtitles/:type/:id.json'], async
   } catch (e) {
     console.error('subtitles error', e);
     res.json({ subtitles: [] });
+  }
+});
+
+app.get(['/stream/:type/:id/:extra.json', '/stream/:type/:id.json'], async (req, res) => {
+  try {
+    const streams = await libraryStreams(req.params.type, req.params.id, config.publicUrl || base(req));
+    res.setHeader('Cache-Control', 'max-age=60');
+    res.json({ streams });
+  } catch (e) {
+    console.error('stream error', e);
+    res.json({ streams: [] });
+  }
+});
+
+app.get('/play/:token', async (req, res) => {
+  try {
+    res.redirect(302, await playUrl(decodeToken(req.params.token)));
+  } catch (e) {
+    console.error('play error', e.message);
+    res.status(502).end();
   }
 });
 

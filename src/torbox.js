@@ -3,7 +3,7 @@ import { fetchJson } from './http.js';
 import { cached } from './cache.js';
 
 const BASE = 'https://api.torbox.app/v1/api';
-const KINDS = [
+export const KINDS = [
   { list: 'torrents/mylist', dl: 'torrents/requestdl', idParam: 'torrent_id' },
   { list: 'usenet/mylist', dl: 'usenet/requestdl', idParam: 'usenet_id' },
   { list: 'webdl/mylist', dl: 'webdl/requestdl', idParam: 'web_id' },
@@ -56,6 +56,20 @@ export async function nextFile(hit, isNext) {
     }
   }
   return files.find((f) => f.itemId === hit.itemId) || files.find((f) => pattern(f.name) === pattern(hit.name)) || null;
+}
+
+// TorBox's own list cache can lag minutes behind a new download, so bypass it and keep a short in-memory copy.
+let library = { at: 0, files: null };
+export async function libraryFiles() {
+  if (library.files && Date.now() - library.at < 60 * 1000) return library.files;
+  const files = [];
+  for (const [kindIndex, kind] of KINDS.entries()) {
+    for (const it of await list(kind, true).catch(() => [])) {
+      for (const f of it.files || []) files.push({ kindIndex, itemId: it.id, itemName: it.name || '', fileId: f.id, name: f.name, size: Number(f.size) });
+    }
+  }
+  library = { at: Date.now(), files };
+  return files;
 }
 
 export async function streamUrl(hit) {
