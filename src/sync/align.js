@@ -267,6 +267,12 @@ export function insertedRuns(cues, offs, ratio = 1, { maxSpan = 180 } = {}) {
     }
     i = j;
   }
+  // After a jump back, lines that would land before the last kept line are extra too.
+  for (let i = 0, last = -1; i < cues.length; i++) {
+    if (drop.has(i)) continue;
+    if (last >= 0 && offs[i] < offs[last] - 5 && at(i, offs[i]) < at(last, offs[last])) { drop.add(i); continue; }
+    last = i;
+  }
   return drop;
 }
 
