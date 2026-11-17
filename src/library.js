@@ -25,10 +25,23 @@ export function nameHasTitle(name, title) {
   return false;
 }
 
-const metaName = (type, imdb) => cached('cinemeta-title', `${type}:${imdb}`, 7 * 86400, async () => {
+const metaName = (type, imdb) => cached('cinemeta-title', `v2:${type}:${imdb}`, 7 * 86400, async () => {
   const d = await fetchJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdb}.json`);
-  return { name: d.meta?.name || '', year: String(d.meta?.releaseInfo || d.meta?.year || '').slice(0, 4) };
+  const episodes = (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode), v.name || v.title || '']);
+  return { name: d.meta?.name || '', year: String(d.meta?.releaseInfo || d.meta?.year || '').slice(0, 4), episodes };
 });
+
+const STOP = new Set(['the', 'of', 'a', 'an', 'and', 'to', 'in', 'on', 'is', 'his', 'her', 'for']);
+const words = (t) => looseTitle(t).split(' ').filter((w) => w.length > 2 && !STOP.has(w) && !/^\d+$/.test(w));
+
+// "Show - 033 - Episode Title.mkv": a title that shares nothing with the real one means a mislabeled file.
+export function episodeTitleConflicts(fileName, episodeName) {
+  const m = String(fileName).replace(/\.\w+$/, '').match(/[ _]-[ _]\d{2,4}[ _]-[ _](.+)$/);
+  if (!m || !episodeName) return false;
+  const a = words(m[1].replace(/\[[^\]]*\]/g, ' '));
+  const b = new Set(words(episodeName));
+  return a.length >= 2 && b.size >= 1 && !a.some((w) => b.has(w));
+}
 
 const gb = (n) => `${(n / 1024 ** 3).toFixed(2)} GB`;
 
@@ -36,7 +49,8 @@ const gb = (n) => `${(n / 1024 ** 3).toFixed(2)} GB`;
 export async function libraryStreams(type, id, baseUrl) {
   const target = parseStremioId(type, id);
   if (!torbox.enabled() || target?.kind !== 'imdb') return [];
-  const { name: title, year } = await metaName(type, target.imdb);
+  const { name: title, year, episodes = [] } = await metaName(type, target.imdb);
+  const epName = episodes.find(([s, e]) => s === target.season && e === target.episode)?.[2];
   if (!title) return [];
   const ctx = type === 'series' ? await episodeContext(target.imdb, target.season, target.episode) : {};
   const out = [];
@@ -45,7 +59,7 @@ export async function libraryStreams(type, id, baseUrl) {
     const base = f.name.split('/').pop();
     if (!nameHasTitle(`${f.itemName} ${f.name}`, title)) continue;
     if (type === 'series') {
-      if (episodeMatches(base, target.season, target.episode, ctx) !== true) continue;
+      if (episodeMatches(base, target.season, target.episode, ctx) !== true || episodeTitleConflicts(base, epName)) continue;
     } else if (year && /\b(19|20)\d{2}\b/.test(base) && !base.includes(year)) continue;
     out.push({
       name: 'TorBox\nKütüphane',
