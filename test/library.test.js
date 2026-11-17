@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nameHasTitle, episodeTitleConflicts } from '../src/library.js';
+import { nameHasTitle, episodeTitleConflicts, tvUnplayable } from '../src/library.js';
 
 test('library title match tolerates spelling but not a longer title', () => {
   assert.ok(nameHasTitle('[Erai-raws] Naruto Shippuuden - 080 [1080p].mkv', 'Naruto: Shippuden'));
@@ -14,4 +14,11 @@ test('mislabeled episode titles are rejected', () => {
   assert.equal(episodeTitleConflicts('[Anime Time] Naruto Shippuden - 057 - Deprived Of Eternal Sleep.mkv', 'Robbed of Sleep'), false);
   assert.equal(episodeTitleConflicts('[Anime Time] Naruto Shippuden - 033 - The New Target.mkv', 'The New Target'), false);
   assert.equal(episodeTitleConflicts('[Erai-raws] Naruto Shippuuden - 080 [1080p].mkv', 'Last Words'), false);
+});
+
+test('files the TV cannot play are recognised', () => {
+  assert.ok(tvUnplayable('Naruto Shippuuden 001 [1080p BD AV1 Dual Audio].mkv'));
+  assert.ok(tvUnplayable('[Yellow-Flash]_Naruto_Shippuden_-_033_[DVD][576p][10bit][A28A1050].mkv'));
+  assert.equal(tvUnplayable('[Anime Time] Naruto Shippuden Complete [HEVC 10bit x265][AAC] [Anime Time] Naruto Shippuden - 060.mkv'), false);
+  assert.equal(tvUnplayable('[Erai-raws] Naruto Shippuuden - 080 [1080p CR WEB-DL AVC AAC].mkv'), false);
 });

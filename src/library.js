@@ -43,6 +43,10 @@ export function episodeTitleConflicts(fileName, episodeName) {
   return a.length >= 2 && b.size >= 1 && !a.some((w) => b.has(w));
 }
 
+// Samsung's Tizen player fails on AV1 and on 10-bit H.264 (Hi10P); 10-bit HEVC plays.
+export const tvUnplayable = (name) => /\bav1\b/i.test(name)
+  || (/\b10[ -]?bit\b|hi10p?/i.test(name) && !/\b(hevc|x265|h\.?265)\b/i.test(name));
+
 const gb = (n) => `${(n / 1024 ** 3).toFixed(2)} GB`;
 
 // Videos already in the user's TorBox library that match this title/episode, played through /play/.
@@ -57,18 +61,20 @@ export async function libraryStreams(type, id, baseUrl) {
   for (const f of await torbox.libraryFiles()) {
     if (!VIDEO.test(f.name) || /\bsample\b/i.test(f.name)) continue;
     const base = f.name.split('/').pop();
-    if (!nameHasTitle(`${f.itemName} ${f.name}`, title)) continue;
+    if (!nameHasTitle(`${f.itemName} ${f.name}`, title) || tvUnplayable(`${f.itemName} ${f.name}`)) continue;
     if (type === 'series') {
       if (episodeMatches(base, target.season, target.episode, ctx) !== true || episodeTitleConflicts(base, epName)) continue;
     } else if (year && /\b(19|20)\d{2}\b/.test(base) && !base.includes(year)) continue;
     out.push({
       name: 'TorBox\nKütüphane',
-      title: `${base}\n💾 ${gb(f.size)}${/\bav1\b|\bflac\b/i.test(`${f.itemName} ${f.name}`) ? ' · ⚠️ TV açmayabilir (AV1/FLAC)' : ''}`,
+      title: `${base}\n💾 ${gb(f.size)}`,
       url: `${baseUrl}/play/${encodeToken({ k: f.kindIndex, i: f.itemId, f: f.fileId })}`,
       behaviorHints: { filename: base, videoSize: f.size, bingeGroup: `tralt-lib-${f.itemId}` },
     });
   }
-  return out.sort((a, b) => b.behaviorHints.videoSize - a.behaviorHints.videoSize);
+  out.sort((a, b) => b.behaviorHints.videoSize - a.behaviorHints.videoSize);
+  if (out[0]) out[0].name = '⭐ TorBox\nKütüphane';
+  return out;
 }
 
 export const playUrl = (t) => torbox.streamUrl({ kind: torbox.KINDS[t.k], itemId: t.i, fileId: t.f });
