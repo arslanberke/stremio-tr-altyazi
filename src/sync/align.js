@@ -235,15 +235,39 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
   keepEvidence(refSig, cues, offs, ratio);
   keepOrder(cues, offs, ratio);
   keepCut(refSig, cues, offs, ratio);
-  const out = cues.map((c, i) => ({ ...c, start: c.start * ratio + offs[i], end: c.end * ratio + offs[i] }));
-  for (let i = 1; i < out.length; i++) {
-    if (out[i].start < out[i - 1].start) out[i].start = out[i - 1].start;
-    if (out[i - 1].end > out[i].start && out[i].start - out[i - 1].start >= 0.3) out[i - 1].end = out[i].start;
+  const cut = insertedRuns(cues, offs, ratio);
+  const out = cues.map((c, i) => (cut.has(i) ? { ...c, start: -1, end: -0.5 } : { ...c, start: c.start * ratio + offs[i], end: c.end * ratio + offs[i] }));
+  for (let i = 1, p = out[0].end > 0 ? 0 : -1; i < out.length; i++) {
+    if (out[i].end <= 0) continue;
+    if (p >= 0) {
+      if (out[i].start < out[p].start) out[i].start = out[p].start;
+      if (out[p].end > out[i].start && out[i].start - out[p].start >= 0.3) out[p].end = out[i].start;
+    }
     if (out[i].end < out[i].start + 0.3) out[i].end = out[i].start + 0.3;
+    p = i;
   }
   const offsets = [];
   offs.forEach((o, i) => { if (!i || Math.abs(o - offs[i - 1]) > 1e-9) offsets.push([Number(cues[i].start.toFixed(1)), Number(o.toFixed(1))]); });
   return { cues: out, offsets };
+}
+
+// A subtitle made for a longer cut (e.g. a TV special with extra segments) has stretches the video
+// doesn't contain. Such a run lands on top of the lines after it with its own offset and with the
+// offset before it, so it belongs nowhere in this video; its line indexes are returned to be dropped.
+export function insertedRuns(cues, offs, ratio = 1, { maxSpan = 180 } = {}) {
+  const at = (i, o, key = 'start') => cues[i][key] * ratio + o;
+  const drop = new Set();
+  for (let i = 1; i < cues.length; i++) {
+    if (offs[i] === offs[i - 1]) continue;
+    let j = i;
+    while (j + 1 < cues.length && offs[j + 1] === offs[i]) j++;
+    if (j + 1 < cues.length && cues[j].end - cues[i].start <= maxSpan) {
+      const next = at(j + 1, offs[j + 1]);
+      if (at(j, offs[i], 'end') > next + 1 && at(i, offs[i - 1]) > next + 1) for (let m = i; m <= j; m++) drop.add(m);
+    }
+    i = j;
+  }
+  return drop;
 }
 
 // A file holding several episodes back to back: an offset run whose lines mostly fall past the
@@ -449,7 +473,7 @@ export function syncCues(ref, cues, opts = {}) {
   if (!cues.length || !ref.speech.length) return { cues, confident: false };
   const g = globalAlign(ref, cues, opts);
   if (g.z >= 6) {
-    const { cues: refined, offsets } = refineLines(g.refSig, cues, g.ratio, g.offset);
+    const { cues: refined, offsets } = refineLines(g.refSig, cues, g.ratio, g.offset, { range: opts.lineRange ?? 90 });
     const s = snapLines(ref, refined);
     return { cues: s.cues, confident: true, method: 'overlap', offsets, snapped: s.snapped, ...strip(g) };
   }

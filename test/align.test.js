@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syncCues, snapLines, keepOrder, keepEvidence, keepCut, keepEpisode, referenceSignal, coverage, BIN } from '../src/sync/align.js';
+import { syncCues, snapLines, keepOrder, keepEvidence, keepCut, keepEpisode, insertedRuns, referenceSignal, coverage, BIN } from '../src/sync/align.js';
 
 function randomCues(n, seed = 1) {
   let s = seed;
@@ -203,4 +203,12 @@ test('snapLines gives a reference line to the nearest cue only and never reorder
   const r2 = snapLines(ref, tight).cues;
   assert.equal(r2[0].start, 9.2);
   assert.equal(r2[1].start, 10.7);
+});
+
+test('lines from a longer cut that fit nowhere in the video are dropped', () => {
+  const cues = [0, 10, 20, 30, 40, 50, 60, 70].map((s) => ({ start: s, end: s + 2 }));
+  // Lines at 30/40 belong to an extra segment: the video continues at 50 with offset -25.
+  const offs = [0, 0, 0, 60, 60, -25, -25, -25];
+  assert.deepEqual([...insertedRuns(cues, offs)], [3, 4]);
+  assert.equal(insertedRuns(cues, [0, 0, 0, 5, 5, 5, 5, 5]).size, 0);
 });

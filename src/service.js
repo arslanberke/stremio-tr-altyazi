@@ -243,7 +243,7 @@ function episodeSpan(name) {
 export async function buildSubtitle(token) {
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const o = await cached('out', `v15:${token}:${videoKey(video)}`, 30 * 86400, async () => {
+  const o = await cached('out', `v16:${token}:${videoKey(video)}`, 30 * 86400, async () => {
     const cues = await loadCandidate(c, target);
     if (!cues.length) throw new Error('empty subtitle');
     const ref = await getReference(video, target);
@@ -255,6 +255,7 @@ export async function buildSubtitle(token) {
     const multi = cues.span && ref.duration && cues.at(-1).end > ref.duration * 1.5;
     const r = await offload('syncCues', [ref, cues, multi ? { maxShift: cues.at(-1).end } : {}]);
     if (multi && r.confident) r.cues = keepEpisode(cues, r.cues, r.offsets, ref.duration).filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
+    else if (r.confident) r.cues = r.cues.filter((x) => x.end > 0);
     const check = await offload('driftReport', [ref, r.cues]);
     log('sync', c.source, c.release, `ref=${ref.kind}`, `method=${r.method || '-'}`, `ratio=${r.ratio?.toFixed(4)}`, `offset=${r.offset?.toFixed(1)}`, `z=${r.z?.toFixed(1)}`, r.confident ? 'OK' : 'LOW', `cuts=${JSON.stringify(r.offsets || [])}`, `snapped=${r.snapped ?? 0}/${r.cues.length}`, check ? `matched=${(check.matched * 100).toFixed(0)}% drift=${JSON.stringify(check.drift)}` : '');
     return { srt: toSrt(extendForReading(flattenOverlaps(r.cues))), status: r.confident ? 'synced' : 'unsynced', ref: ref.kind, ratio: r.ratio, offset: r.offset, z: r.z, fit: check.matched || 0 };
