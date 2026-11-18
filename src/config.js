@@ -1,7 +1,7 @@
 export const config = {
   port: Number(process.env.PORT || 7000),
   // Subtitle files start lines ~0.2 s before speech (lead-in); synced lines are shown this much later.
-  leadShift: Number(process.env.LEAD_SHIFT ?? 0.25),
+  leadShift: Number(process.env.LEAD_SHIFT ?? 0.2),
   publicUrl: (process.env.PUBLIC_URL || '').replace(/\/$/, ''),
   cacheDir: process.env.CACHE_DIR || './cache',
   torboxKey: process.env.TORBOX_API_KEY || '',
