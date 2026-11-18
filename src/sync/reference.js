@@ -189,7 +189,9 @@ export async function referenceFromVideo(url) {
     const len = rate > 8e6 ? Math.max(30, Math.round((150 * 8e6) / rate)) : 150;
     const heavy = len < 150;
     const t0 = Date.now();
-    const res = (await pool(planWindows(duration, heavy ? 12 : Math.min(12, Math.ceil(duration / len)), len, 0), heavy ? 2 : 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
+    // An episode is read back to back even when heavy: a gap leaves its lines unchecked.
+    const count = duration && duration <= 1800 ? Math.ceil(duration / len) : heavy ? 12 : Math.min(12, Math.ceil(duration / len));
+    const res = (await pool(planWindows(duration, count, len, 0), heavy ? 3 : 4, (w) => subWindow(url, sub.index, w))).filter(Boolean);
     const cues = res.flatMap((r) => r.cues);
     console.log(new Date().toISOString(), 'embedded windows', res.length, 'cues', cues.length, 'len', len, `${Math.round((Date.now() - t0) / 1000)}s`);
     if (cues.length >= 20) {
