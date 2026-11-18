@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nameHasTitle, episodeTitleConflicts, tvUnplayable } from '../src/library.js';
+import { nameHasTitle, episodeTitleConflicts, tvUnplayable, videoTracks } from '../src/library.js';
 
 test('library title match tolerates spelling but not a longer title', () => {
   assert.ok(nameHasTitle('[Erai-raws] Naruto Shippuuden - 080 [1080p].mkv', 'Naruto: Shippuden'));
@@ -21,4 +21,10 @@ test('files the TV cannot play are recognised', () => {
   assert.ok(tvUnplayable('[Yellow-Flash]_Naruto_Shippuden_-_033_[DVD][576p][10bit][A28A1050].mkv'));
   assert.equal(tvUnplayable('[Anime Time] Naruto Shippuden Complete [HEVC 10bit x265][AAC] [Anime Time] Naruto Shippuden - 060.mkv'), false);
   assert.equal(tvUnplayable('[Erai-raws] Naruto Shippuuden - 080 [1080p CR WEB-DL AVC AAC].mkv'), false);
+});
+
+test('counts real video tracks, not cover art', () => {
+  const v = { codec_type: 'video' };
+  assert.equal(videoTracks([v, { codec_type: 'audio' }, { codec_type: 'video', disposition: { attached_pic: 1 } }]), 1);
+  assert.equal(videoTracks([v, v, v]), 3);
 });

@@ -3,6 +3,7 @@ import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches } from './episode.js';
 import { episodeContext, encodeToken } from './service.js';
 import * as torbox from './torbox.js';
+import { probe } from './sync/reference.js';
 
 const VIDEO = /\.(mkv|mp4|avi|m4v|ts|webm)$/i;
 
@@ -49,6 +50,14 @@ export const tvUnplayable = (name) => /\bav1\b/i.test(name)
 
 const gb = (n) => `${(n / 1024 ** 3).toFixed(2)} GB`;
 
+// A file muxed with several video tracks (a broken remux) won't play on the TV. Unknown counts as fine;
+// a slow first probe keeps running in the background and is cached for next time.
+export const videoTracks = (streams) => (streams || []).filter((s) => s.codec_type === 'video' && !s.disposition?.attached_pic).length;
+function singleVideo(hit) {
+  const n = cached('video-tracks', `v1:${hit.itemId}:${hit.fileId}`, 30 * 86400, async () => videoTracks((await probe(await torbox.streamUrl(hit)))?.streams) || null, Boolean).catch(() => null);
+  return Promise.race([n, new Promise((r) => setTimeout(r, 4000, null))]).then((v) => !(v > 1));
+}
+
 // Videos already in the user's TorBox library that match this title/episode, played through /play/.
 export async function libraryStreams(type, id, baseUrl) {
   const target = parseStremioId(type, id);
@@ -70,11 +79,14 @@ export async function libraryStreams(type, id, baseUrl) {
       title: `${base}\n💾 ${gb(f.size)}`,
       url: `${baseUrl}/play/${encodeToken({ k: f.kindIndex, i: f.itemId, f: f.fileId })}`,
       behaviorHints: { filename: base, videoSize: f.size, bingeGroup: `tralt-lib-${f.itemId}` },
+      _hit: { kind: torbox.KINDS[f.kindIndex], itemId: f.itemId, fileId: f.fileId },
     });
   }
-  out.sort((a, b) => b.behaviorHints.videoSize - a.behaviorHints.videoSize);
-  if (out[0]) out[0].name = '⭐ TorBox\nKütüphane';
-  return out;
+  const ok = await Promise.all(out.map((s) => singleVideo(s._hit)));
+  const kept = out.filter((s, i) => ok[i]).map(({ _hit, ...s }) => s);
+  kept.sort((a, b) => b.behaviorHints.videoSize - a.behaviorHints.videoSize);
+  if (kept[0]) kept[0].name = '⭐ TorBox\nKütüphane';
+  return kept;
 }
 
 export const playUrl = (t) => torbox.streamUrl({ kind: torbox.KINDS[t.k], itemId: t.i, fileId: t.f });
