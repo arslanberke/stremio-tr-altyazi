@@ -251,8 +251,8 @@ export async function buildSubtitle(token) {
       log('no reference, serving as-is', c.release);
       return { srt: toSrt(extendForReading(flattenOverlaps(cues))), status: 'unsynced' };
     }
-    // A multi-episode file is searched across its whole length and cut down to this video.
-    const multi = cues.span && ref.duration && cues.at(-1).end > ref.duration * 1.5;
+    // A multi-episode file (also one inside a pack, named "pack.zip") is searched across its whole length and cut down to this video.
+    const multi = ref.duration && cues.at(-1).end > ref.duration * 1.5;
     const r = await offload('syncCues', [ref, cues, multi ? { maxShift: cues.at(-1).end } : {}]);
     if (multi && r.confident) r.cues = keepEpisode(cues, r.cues, r.offsets, ref.duration).filter((x) => x.end > 0 && x.start < ref.duration).map((x) => ({ ...x, start: Math.max(0, x.start) }));
     else if (r.confident) r.cues = r.cues.filter((x) => x.end > 0);
