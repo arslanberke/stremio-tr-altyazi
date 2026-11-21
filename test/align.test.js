@@ -212,3 +212,10 @@ test('lines from a longer cut that fit nowhere in the video are dropped', () => 
   assert.deepEqual([...insertedRuns(cues, offs)], [3, 4]);
   assert.equal(insertedRuns(cues, [0, 0, 0, 5, 5, 5, 5, 5]).size, 0);
 });
+
+test('a text track does not accept unrelated subtitles', () => {
+  for (const seed of [5, 42, 99]) {
+    const r = syncCues({ ...asRef(randomCues(400, 3)), kind: 'embedded' }, randomCues(400, seed));
+    assert.equal(r.confident, false, `seed ${seed}`);
+  }
+});

@@ -488,6 +488,12 @@ export function syncCues(ref, cues, opts = {}) {
     const s = snapLines(ref, o.cues);
     return { cues: s.cues, confident: true, method: 'onset', offsets: o.offsets, snapped: s.snapped, ...strip(o.g) };
   }
+  // A text track of the file itself is precise: a weaker peak still counts if most lines then land on its lines.
+  if (ref.kind !== 'audio' && g.z >= 4.5) {
+    const { cues: refined, offsets } = refineLines(g.refSig, cues, g.ratio, g.offset, { range: opts.lineRange ?? 90 });
+    const s = snapLines(ref, refined);
+    if (driftReport(ref, s.cues).matched >= 0.75) return { cues: s.cues, confident: true, method: 'checked', offsets, snapped: s.snapped, ...strip(g) };
+  }
   return { cues, confident: false, ...strip(g.z >= o.g.z ? g : o.g) };
 }
 
