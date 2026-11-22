@@ -19,6 +19,8 @@ test('a subtitle read cut off by the timeout only covers up to its last line', (
   const cues = [{ start: 50, end: 52 }, { start: 80, end: 83 }, { start: 400, end: 401 }];
   assert.deepEqual(subtitleWindow(cues, 40, 190, true).window, [49, 84]);
   assert.deepEqual(subtitleWindow(cues, 40, 190).window, [49, 190]);
+  assert.deepEqual(subtitleWindow(cues, 0, 190).window, [0, 190]);
+  assert.deepEqual(subtitleWindow([{ start: 35, end: 37 }, ...cues], 40, 190).window, [40, 190]);
   assert.equal(subtitleWindow(cues, 200, 350), null);
 });
 

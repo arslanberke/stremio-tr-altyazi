@@ -126,8 +126,9 @@ async function subWindow(url, index, [ws, we]) {
 export function subtitleWindow(all, ws, we, timedOut = false) {
   const cues = all.filter((c) => c.start >= ws && c.start <= we);
   if (!cues.length) return null;
+  const start = ws === 0 || all.some((c) => c.start < ws) ? ws : Math.max(ws, cues[0].start - 1);
   const end = timedOut ? Math.min(we, cues[cues.length - 1].end + 1) : we;
-  return { window: [Math.max(ws, cues[0].start - 1), end], cues };
+  return { window: [start, end], cues };
 }
 
 export function vad(samples, rate, offset) {
