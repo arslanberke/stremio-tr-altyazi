@@ -200,16 +200,23 @@ export function refineChunks(refSig, cues, ratio, offset, { chunk = 120, range =
 
 // Per-line offsets via Viterbi (alass-style): every line may take any offset within
 // ±range of the global one, and changing offset between lines costs `penalty`, so the
-// timeline only jumps where the reference clearly supports a cut.
+// timeline only jumps where the reference clearly supports a cut. Jumping backwards in
+// time (curStart < prevEnd) also pays the positive reference mass of the overlapped
+// stretch so Viterbi cannot double-count a dense region (e.g. an OP/ED song) twice.
 export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty = 150 } = {}) {
   const pre = new Float64Array(refSig.length + 1);
-  for (let i = 0; i < refSig.length; i++) pre[i + 1] = pre[i] + refSig[i];
+  const posPre = new Float64Array(refSig.length + 1);
+  for (let i = 0; i < refSig.length; i++) {
+    pre[i + 1] = pre[i] + refSig[i];
+    posPre[i + 1] = posPre[i] + (refSig[i] > 0 ? refSig[i] : 0);
+  }
   const R = Math.round(range / BIN);
   const D = 2 * R + 1;
   const n = cues.length;
   const back = new Int32Array(n * D);
   let prev = new Float64Array(D);
   let cur = new Float64Array(D);
+  const clampBin = (t) => Math.min(refSig.length, Math.max(0, Math.round(t / BIN)));
   const lineScore = (c, k) => {
     const off = offset + (k - R) * BIN;
     const s = Math.min(refSig.length, Math.max(0, Math.floor((c.start * ratio + off) / BIN)));
@@ -217,14 +224,41 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
     return pre[e] - pre[s];
   };
   for (let k = 0; k < D; k++) prev[k] = lineScore(cues[0], k) - (k === R ? 0 : penalty);
+  const prefVal = new Float64Array(D);
+  const prefIdx = new Int32Array(D);
+  const suffVal = new Float64Array(D);
+  const suffIdx = new Int32Array(D);
   for (let i = 1; i < n; i++) {
-    let bk = 0;
-    for (let k = 1; k < D; k++) if (prev[k] > prev[bk]) bk = k;
-    const jump = prev[bk] - penalty;
+    const prevEnd = cues[i - 1].end * ratio;
+    const curStart = cues[i].start * ratio;
+    const gapBins = Math.floor((curStart - prevEnd) / BIN);
+    prefVal[0] = prev[0];
+    prefIdx[0] = 0;
+    for (let j = 1; j < D; j++) {
+      if (prev[j] > prefVal[j - 1]) { prefVal[j] = prev[j]; prefIdx[j] = j; }
+      else { prefVal[j] = prefVal[j - 1]; prefIdx[j] = prefIdx[j - 1]; }
+    }
+    for (let j = D - 1; j >= 0; j--) {
+      const v = prev[j] - posPre[clampBin(prevEnd + offset + (j - R) * BIN)];
+      if (j === D - 1 || v > suffVal[j + 1]) { suffVal[j] = v; suffIdx[j] = j; }
+      else { suffVal[j] = suffVal[j + 1]; suffIdx[j] = suffIdx[j + 1]; }
+    }
     for (let k = 0; k < D; k++) {
-      const stay = prev[k];
-      if (stay >= jump) { cur[k] = stay; back[i * D + k] = k; } else { cur[k] = jump; back[i * D + k] = bk; }
-      cur[k] += lineScore(cues[i], k);
+      let best = prev[k];
+      let bk = k;
+      const split = k + gapBins;
+      if (split >= 0) {
+        const idx = Math.min(D - 1, split);
+        const v = prefVal[idx] - penalty;
+        if (v > best) { best = v; bk = prefIdx[idx]; }
+      }
+      if (split + 1 < D) {
+        const idx = Math.max(0, split + 1);
+        const v = suffVal[idx] + posPre[clampBin(curStart + offset + (k - R) * BIN)] - penalty;
+        if (v > best) { best = v; bk = suffIdx[idx]; }
+      }
+      cur[k] = best + lineScore(cues[i], k);
+      back[i * D + k] = bk;
     }
     [prev, cur] = [cur, prev];
   }

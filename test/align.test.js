@@ -212,10 +212,47 @@ test('lines from a longer cut that fit nowhere in the video are dropped', () => 
   assert.deepEqual([...insertedRuns(cues, offs)], [3, 4]);
   assert.equal(insertedRuns(cues, [0, 0, 0, 5, 5, 5, 5, 5]).size, 0);
 });
-
 test('a text track does not accept unrelated subtitles', () => {
   for (const seed of [5, 42, 99]) {
     const r = syncCues({ ...asRef(randomCues(400, 3)), kind: 'embedded' }, randomCues(400, seed));
     assert.equal(r.confident, false, `seed ${seed}`);
   }
+});
+
+test('refineLines does not jump forward onto a dense song and then backwards to double-count it', () => {
+  // Cold open (0..65) is shifted by -1s in the video, OP song (70..145) is continuous speech,
+  // and the episode body (165..600) is shifted by -10s relative to the subtitle.
+  let t = 165;
+  const bodyRef = [];
+  const bodySub = [];
+  for (let i = 0; i < 40; i++) {
+    const dur = 1.8 + ((i * 13) % 7) * 0.4;
+    const gap = 2.5 + ((i * 17 + 3) % 11) * 0.9;
+    bodyRef.push([t, t + dur]);
+    bodySub.push({ start: t + 10, end: t + 10 + dur, text: `b${i}` });
+    t += dur + gap;
+  }
+  const refSpeech = [
+    [33, 36], [36, 39], [39, 42], [44, 50], [50.5, 55.5], [61, 64],
+    // Dense OP song at 70..145
+    ...Array.from({ length: 15 }, (_, i) => [70 + i * 5, 74.8 + i * 5]),
+    ...bodyRef
+  ];
+  const cues = [
+    { start: 34, end: 37, text: 'a1' }, { start: 37, end: 40, text: 'a2' },
+    { start: 40, end: 43, text: 'a3' }, { start: 45, end: 51, text: 'a4' },
+    { start: 51.5, end: 56.5, text: 'a5' }, { start: 62, end: 65, text: 'a6' },
+    // OP lyrics shifted by -1s
+    ...Array.from({ length: 12 }, (_, i) => ({ start: 71 + i * 6, end: 76.5 + i * 6, text: `op${i}` })),
+    ...bodySub
+  ];
+  const dur = Math.ceil(t + 20);
+  const ref = { kind: 'embedded', duration: dur, speech: refSpeech, windows: [[0, dur]] };
+  const r = syncCues(ref, cues);
+  assert.equal(r.confident, true);
+  // Cold-open lines must stay near their true video times (33..64), not jump +40s into the OP.
+  assert.ok(Math.abs(r.cues[4].start - 50.5) < 1.5, `expected ~50.5, got ${r.cues[4].start}`);
+  assert.ok(Math.abs(r.cues[5].start - 61) < 1.5, `expected ~61, got ${r.cues[5].start}`);
+  // Body must align near 165.
+  assert.ok(Math.abs(r.cues[18].start - 165) < 1.5, `expected ~165, got ${r.cues[18].start}`);
 });
