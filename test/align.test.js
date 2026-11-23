@@ -256,3 +256,29 @@ test('refineLines does not jump forward onto a dense song and then backwards to 
   // Body must align near 165.
   assert.ok(Math.abs(r.cues[18].start - 165) < 1.5, `expected ~165, got ${r.cues[18].start}`);
 });
+
+test('refineLines aligns a short cold open at a different offset without double penalty', () => {
+  // Cold open has ~18s of speech at offset -0.3s, while the episode body after the OP is at -12s.
+  // Starting at the cold-open offset should only pay one cut penalty at the OP transition.
+  const cold = [[9.7, 10.7], [11.3, 15.1], [15.1, 17.6], [18.2, 21.0], [21.1, 26.3], [27.4, 28.2], [32.0, 34.9], [76.0, 76.6]];
+  let t = 174;
+  const bodyRef = [];
+  const bodySub = [];
+  for (let i = 0; i < 40; i++) {
+    const dur = 1.8 + ((i * 13) % 7) * 0.4;
+    const gap = 2.5 + ((i * 17 + 3) % 11) * 0.9;
+    bodyRef.push([t, t + dur]);
+    bodySub.push({ start: t + 12, end: t + 12 + dur, text: `b${i}` });
+    t += dur + gap;
+  }
+  const ref = { kind: 'embedded', duration: Math.ceil(t + 20), speech: [...cold, ...bodyRef], windows: [[0, Math.ceil(t + 20)]] };
+  const cues = [
+    ...cold.map(([s, e], i) => ({ start: s + 0.3, end: e + 0.3, text: `c${i}` })),
+    ...bodySub
+  ];
+  const r = syncCues(ref, cues);
+  assert.equal(r.confident, true);
+  assert.ok(Math.abs(r.cues[0].start - 9.7) < 0.5, `expected ~9.7, got ${r.cues[0].start}`);
+  assert.ok(Math.abs(r.cues[7].start - 76.0) < 0.5, `expected ~76.0, got ${r.cues[7].start}`);
+  assert.ok(Math.abs(r.cues[8].start - 174) < 0.5, `expected ~174, got ${r.cues[8].start}`);
+});

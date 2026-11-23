@@ -223,7 +223,7 @@ export function refineLines(refSig, cues, ratio, offset, { range = 30, penalty =
     const e = Math.min(refSig.length, Math.max(s, Math.ceil((c.end * ratio + off) / BIN)));
     return pre[e] - pre[s];
   };
-  for (let k = 0; k < D; k++) prev[k] = lineScore(cues[0], k) - (k === R ? 0 : penalty);
+  for (let k = 0; k < D; k++) prev[k] = lineScore(cues[0], k);
   const prefVal = new Float64Array(D);
   const prefIdx = new Int32Array(D);
   const suffVal = new Float64Array(D);
