@@ -1,4 +1,5 @@
 import { cached } from './cache.js';
+import { config } from './config.js';
 import { fetchJson } from './http.js';
 import { parseStremioId, episodeMatches } from './episode.js';
 import { episodeContext, encodeToken } from './service.js';
@@ -26,13 +27,17 @@ export function nameHasTitle(name, title) {
   return false;
 }
 
-const metaName = (type, imdb) => cached('cinemeta-title', `v3:${type}:${imdb}`, 7 * 86400, async () => {
-  const [d, maze] = await Promise.all([
+const metaName = (type, imdb) => cached('cinemeta-title', `v4:${type}:${imdb}`, 7 * 86400, async () => {
+  const num = Number(imdb.replace(/^tt/, ''));
+  const [d, os] = await Promise.all([
     fetchJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdb}.json`),
-    type === 'series' ? fetchJson(`https://api.tvmaze.com/lookup/shows?imdb=${imdb}`).catch(() => null) : null,
+    config.osKey && num ? fetchJson(`https://api.opensubtitles.com/api/v1/features?imdb_id=${num}`, {
+      headers: { 'Api-Key': config.osKey, 'User-Agent': config.userAgent },
+    }).catch(() => null) : null,
   ]);
+  const feat = os?.data?.[0]?.attributes;
   const episodes = (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode), v.name || v.title || '']);
-  const titles = [...new Set([d.meta?.name, maze?.name, ...(d.meta?.aliases || [])].filter(Boolean))];
+  const titles = [...new Set([d.meta?.name, feat?.original_title, feat?.title, ...(feat?.title_aka || []), ...(d.meta?.aliases || [])].filter(Boolean))];
   return { titles, year: String(d.meta?.releaseInfo || d.meta?.year || '').slice(0, 4), episodes };
 });
 
