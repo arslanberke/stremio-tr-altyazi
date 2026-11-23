@@ -20,16 +20,20 @@ export function nameHasTitle(name, title) {
   for (let i = 0; i + tw.length <= words.length; i++) {
     if (tw.every((w, j) => words[i + j] === w)) {
       const next = words[i + tw.length];
-      if (next == null || /^\d/.test(next) || /^(s\d+(e\d+)?|season|ep?|episode|complete|batch|the|movie|box|bd|dvd|web)$/.test(next)) return true;
+      if (next == null || /^\d/.test(next) || /^(s\d+(e\d+)?|season|sezon|ep?|episode|complete|batch|the|movie|box|bd|dvd|web)$/.test(next)) return true;
     }
   }
   return false;
 }
 
-const metaName = (type, imdb) => cached('cinemeta-title', `v2:${type}:${imdb}`, 7 * 86400, async () => {
-  const d = await fetchJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdb}.json`);
+const metaName = (type, imdb) => cached('cinemeta-title', `v3:${type}:${imdb}`, 7 * 86400, async () => {
+  const [d, maze] = await Promise.all([
+    fetchJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdb}.json`),
+    type === 'series' ? fetchJson(`https://api.tvmaze.com/lookup/shows?imdb=${imdb}`).catch(() => null) : null,
+  ]);
   const episodes = (d.meta?.videos || []).map((v) => [Number(v.season), Number(v.episode), v.name || v.title || '']);
-  return { name: d.meta?.name || '', year: String(d.meta?.releaseInfo || d.meta?.year || '').slice(0, 4), episodes };
+  const titles = [...new Set([d.meta?.name, maze?.name, ...(d.meta?.aliases || [])].filter(Boolean))];
+  return { titles, year: String(d.meta?.releaseInfo || d.meta?.year || '').slice(0, 4), episodes };
 });
 
 const STOP = new Set(['the', 'of', 'a', 'an', 'and', 'to', 'in', 'on', 'is', 'his', 'her', 'for']);
@@ -62,15 +66,15 @@ function singleVideo(hit) {
 export async function libraryStreams(type, id, baseUrl) {
   const target = parseStremioId(type, id);
   if (!torbox.enabled() || target?.kind !== 'imdb') return [];
-  const { name: title, year, episodes = [] } = await metaName(type, target.imdb);
+  const { titles = [], year, episodes = [] } = await metaName(type, target.imdb);
   const epName = episodes.find(([s, e]) => s === target.season && e === target.episode)?.[2];
-  if (!title) return [];
+  if (!titles.length) return [];
   const ctx = type === 'series' ? await episodeContext(target.imdb, target.season, target.episode) : {};
   const out = [];
   for (const f of await torbox.libraryFiles()) {
     if (!VIDEO.test(f.name) || /\bsample\b/i.test(f.name)) continue;
     const base = f.name.split('/').pop();
-    if (!nameHasTitle(`${f.itemName} ${f.name}`, title) || tvUnplayable(`${f.itemName} ${f.name}`)) continue;
+    if (!titles.some((t) => nameHasTitle(`${f.itemName} ${f.name}`, t)) || tvUnplayable(`${f.itemName} ${f.name}`)) continue;
     if (type === 'series') {
       if (episodeMatches(base, target.season, target.episode, ctx) !== true || episodeTitleConflicts(base, epName)) continue;
     } else if (year && /\b(19|20)\d{2}\b/.test(base) && !base.includes(year)) continue;
