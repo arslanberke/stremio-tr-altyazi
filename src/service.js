@@ -293,7 +293,7 @@ export async function serveSubtitle(token) {
   if (!out.error && !isWrong(out)) return out;
   const { c, t: target, v } = decodeToken(token);
   const video = completeVideo(target, v);
-  const others = (await findCandidates(target, video)).filter((x) => !x.mt && !(x.source === c.source && x.ref === c.ref)).slice(0, 6);
+  const others = pickTop(await findCandidates(target, video), 12).filter((x) => !x.mt && !(x.source === c.source && x.ref === c.ref));
   for (const o of others) {
     const r = await buildSubtitle(encodeToken({ c: o, t: target, v: video })).catch(() => null);
     if (r?.status === 'synced') {
@@ -328,14 +328,17 @@ export async function listSubtitles(type, id, extraStr, baseUrl, mt = false) {
   const results = items.map(({ token }) => buildSubtitle(token).catch((e) => (log('prepare failed', e.message), { status: /no matching episode/.test(e.message) ? 'absent' : 'error' })));
   const done = new Array(items.length).fill(null);
   results.forEach((p, i) => p.then((o) => { done[i] = o; }));
-  const loads = items.map(({ c }) => loadCandidate(c, target).catch(() => null));
   const files = new Array(items.length).fill(null);
-  loads.forEach((p, i) => p.then((r) => { files[i] = r; }));
+  const loads = items.map(({ c }, i) => loadCandidate(c, target).then((r) => { files[i] = r; }, (e) => { if (/no matching episode/.test(e.message) && !done[i]) done[i] = { status: 'absent' }; }));
   Promise.all(results).then(() => prefetchNext(target, completeVideo(target, raw))).catch((e) => log('prefetch failed', e.message));
   // A prefetched episode only waits for the subtitles that were prepared ahead; the rest keep syncing.
   const ahead = video !== raw && new Set(pickTop(found, PREFETCH_TOP).map((c) => `${c.source}:${c.ref}`));
   const wait = ahead ? results.filter((_, i) => ahead.has(`${items[i].c.source}:${items[i].c.ref}`)) : results;
-  await Promise.race([Promise.all([...wait, ...loads]), new Promise((r) => setTimeout(r, 15000))]);
+  const deadline = new Promise((r) => setTimeout(r, 15000));
+  await Promise.race([Promise.all([...wait, ...loads]), deadline]);
+  if (ahead && !done.some((o) => o?.status === 'synced')) {
+    await Promise.race([Promise.all(results), deadline]);
+  }
   // TV shows no labels: the best subtitle must come first (synced, then best-fitting unsynced).
   // A synced subtitle whose lines leave much of the dialogue without text (lines shown too briefly) goes below the others.
   const best = Math.max(0, ...done.map((o) => (o?.status === 'synced' && o.cover) || 0));
@@ -415,5 +418,9 @@ async function prefetchNext(target, video) {
   log('prefetch', next.imdb, next.season, next.episode, v.videoSize, v.filename);
   if (!(await getReference(v, next))) return;
   const found = await findCandidates(next, v);
-  for (const c of found[0]?.mt ? [] : pickTop(found, PREFETCH_TOP)) await buildSubtitle(encodeToken({ c, t: next, v })).catch(() => null);
+  let ready = 0;
+  for (const c of found[0]?.mt ? [] : pickTop(found, 12)) {
+    const r = await buildSubtitle(encodeToken({ c, t: next, v })).catch(() => null);
+    if (r?.status === 'synced' && ++ready >= PREFETCH_TOP) break;
+  }
 }
